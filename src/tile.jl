@@ -123,7 +123,13 @@ Each tile assigns curvepiece ids in sequence starting from 1. `_next_cp_id` cont
 which will be assigned to the next curvepiece that is created.
 
 Each tile contains a dictionary `_curvepieces` which maps from curvepiece ids to `Curvepiece`
-structs, which contain all of the information about each curvepiece.
+structs, which contain all of the information about each curvepiece. The reason to choose a
+dictionary rather than an array here (unlike what we do in `Lattice` for `_curvediagrams`) is
+that in this case if we store the curvepieces in an array, its eltype must be `Union{Nothing, Curvepiece}`.
+This seems like it might induce a performance penalty, and more importantly there aren't clear
+runtime guarantees on the maximum number of curvepieces that can be created in a tile during
+the simulation, meaning we could end up with an extremely large and sparse array of `nothing`
+stored densely, if we did not use a `Dict`.
 
 A tile can have any number of edges `n_edges`, which is the sole parameter for the constructor.
 For each edge, we store a vector of `EndpointRef`s in the order the endpoints are encountered
@@ -385,9 +391,71 @@ function _validate_edge_to_anyon_insertion(t::Tile, edge::Int, pos::Int)
     end
 end
 
-"""Validates that moving a curvepiece `endpoint` to `(edge, pos)` does not cause curvepieces to intersect."""
+"""
+Validates that moving the endpoint referenced by `eref` to `(edge, pos)` does not cause
+curvepieces to intersect. Throws `ArgumentError` if the move is invalid.
+
+Validation is performed against the current state of the tile (before `eref` has been
+removed from its old location), and mirrors the logic in `_validate_edge_to_edge_insertion`
+and `_validate_edge_to_anyon_insertion`. `eref` is excluded from the arc when its old
+position falls within the new arc, so the check is not confused by the endpoint's current
+location.
+
+For an edge-to-edge curvepiece:
+The new partition runs clockwise from `(edge, pos)` to the partner's current position.
+The move is invalid if:
+- any other edge-to-edge curvepiece has one endpoint inside the arc and one outside, or
+- there are two anyon curvepieces and exactly one of their edge endpoints lies inside the arc
+  (which would mean the anyon partition and the new partition cross).
+
+For an anyon-to-edge curvepiece:
+The partition is formed by the new position together with the other anyon curvepiece's edge
+endpoint. No partition is formed when there is only one anyon curvepiece, so such a move is
+always valid. When there are two anyon curvepieces, the move is invalid if any edge-to-edge
+curvepiece has one endpoint inside the resulting arc and one outside.
+"""
 function _validate_move(t::Tile, eref::EndpointRef, edge::Int, pos::Int)
-# TODO
+    partner_eref = get_partner_EndpointRef(eref)
+    partner_ep   = get_endpoint(t, partner_eref)
+
+    if partner_ep isa EdgeEndpoint
+        # Moving an edge-to-edge curvepiece endpoint.
+        arc = _EndpointRefs_between(t, edge, pos, partner_ep.edge, partner_ep.pos)
+        filter!(r -> r != eref, arc)   # eref may appear at its old position inside the new arc
+        unpaired = _unpaired_EndpointRefs(arc)
+        unpaired_edge_partners  = [r for r in unpaired if has_edge_partner(t, r)]
+        unpaired_anyon_partners = [r for r in unpaired if has_anyon_partner(t, r)]
+
+        if !isempty(unpaired_edge_partners)
+            throw(ArgumentError(
+                "move to ($edge,$pos) would intersect curves: " *
+                "$(length(unpaired_edge_partners)) unpaired edge endpoint(s) in clockwise arc"))
+        end
+        n_anyon = length(unpaired_anyon_partners)
+        if n_anyon == 1 && num_anyon_curvepieces(t) == 2
+            throw(ArgumentError(
+                "move to ($edge,$pos) would intersect curves: " *
+                "arc crosses exactly one of two anyon-curvepiece boundary points"))
+        end
+    else
+        # Moving an anyon-to-edge curvepiece endpoint.
+        # A partition only forms when two anyon curvepieces are present.
+        num_anyon_curvepieces(t) == 1 && return
+
+        other_anyon_eref = first(r for r in get_anyon_EndpointRefs(t) if r.cp_id != eref.cp_id)
+        other_edge_eref  = get_partner_EndpointRef(other_anyon_eref)
+        other_edge_ep    = get_endpoint(t, other_edge_eref)::EdgeEndpoint
+
+        arc = _EndpointRefs_between(t, edge, pos, other_edge_ep.edge, other_edge_ep.pos)
+        filter!(r -> r != eref, arc)
+        unpaired = _unpaired_EndpointRefs(arc)
+
+        if !isempty(unpaired)
+            throw(ArgumentError(
+                "anyon curvepiece move to ($edge,$pos) would intersect curves: " *
+                "$(length(unpaired)) edge-to-edge curvepiece(s) cross the resulting partition"))
+        end
+    end
 end
 
 ### INTERNAL MUTATORS ###
@@ -520,7 +588,12 @@ Returns the `cp_id` of the created curvepiece.
 """
 function insert_curvepiece!(t::Tile, edge::Int, pos::Int, direction::EndpointDirection,
                             curve_id::Int, position_in_curve::Int)
-    # TODO: validate that if there are two curvpieces on the anyon, they have the same curve id
+    if num_anyon_curvepieces(t) == 1
+        existing = anyon_curve_id(t)
+        existing != curve_id && throw(ArgumentError(
+            "both anyon curvepieces must belong to the same curve; " *
+            "existing curve_id=$existing, new curve_id=$curve_id"))
+    end
     _validate_edge_to_anyon_insertion(t, edge, pos)
     cp_id = _allocate_cp_id!(t)
     # correct ordering occurs on construction
@@ -571,6 +644,7 @@ to-edge curvepiece into different parts of the partition.
 """
 function move_endpoint!(t::Tile, eref::EndpointRef, new_edge::Int, new_pos::Int)
     ep::EdgeEndpoint = get_endpoint(t, eref)
+    _validate_move(t, eref, new_edge, new_pos)
     _remove_edge_EndpointRef!(t, ep.edge, ep.pos)
     # if moving to somewhere on the same edge, removing the original EndpointRef changes the insertion position
     new_pos = (new_edge == ep.edge && new_pos > ep.pos) ? new_pos - 1 : new_pos
