@@ -276,7 +276,7 @@ end
 
 @testset "Tile public mutators" begin
 
-    # --- insert_curvepiece! edge-to-edge ---
+    ### insert_curvepiece! edge-to-edge version ###
 
     # basic insertion: returns cp_id=1, creates correct curvepiece
     let t = Tile(4)

@@ -284,6 +284,12 @@ function _push_anyon_EndpointRef!(t::Tile, eref::EndpointRef)
     push!(t._anyon_endpoints, eref)
 end
 
+"""Removes an EndpointRef from the anyon."""
+function _remove_anyon_EndpointRef!(t::Tile, eref::EndpointRef)
+    delete!(t._anyon_endpoints, eref)
+end
+
 ### PUBLIC MUTATORS ###
 
+# placed in a seaparate file for readability
 include("mutators.jl")
