@@ -255,14 +255,14 @@ Replaces the stored pos of an endpoint within a `Curvepiece`.
 Convenience wrapper for _set_endpoint_location! for the case when an endpoint has been
 shifted along an edge, so only the pos needs to be updated.
 """
-_update_endpoint_pos!(t::Tile, eref::EndpointRef, new_pos::Int) =
+_set_endpoint_pos!(t::Tile, eref::EndpointRef, new_pos::Int) =
     _set_endpoint_location!(t, eref, (get_endpoint(t, eref)::EdgeEndpoint).edge, new_pos)
 
 """Insert `eref` into edge `edge` at position `pos`, shifting subsequent endpoint locations up."""
 function _insert_edge_EndpointRef!(t::Tile, eref::EndpointRef, edge::Int, pos::Int)
     # shift all endpoints above the insertion point to have positions incremented by 1
     for oldendpointpos in pos:num_endpoints(t, edge)
-        _update_endpoint_pos!(t, get_edge_EndpointRef(t, edge, oldendpointpos), oldendpointpos + 1)
+        _set_endpoint_pos!(t, get_edge_EndpointRef(t, edge, oldendpointpos), oldendpointpos + 1)
     end
     # insert eref at pos
     insert!(t._edge_endpoints[edge], pos, eref)
@@ -274,23 +274,13 @@ function _remove_edge_EndpointRef!(t::Tile, edge::Int, pos::Int)
     deleteat!(t._edge_endpoints[edge], pos)
     # shift all endpoints above the removal point to have positions equal to their index in the array
     for newendpointpos in pos:num_endpoints(t, edge)
-        _update_endpoint_pos!(t, get_edge_EndpointRef(t, edge, newendpointpos), newendpointpos)
+        _set_endpoint_pos!(t, get_edge_EndpointRef(t, edge, newendpointpos), newendpointpos)
     end
 end
 
-"""
-Push an EndpointRef onto the anyon. Errors if this addition would result in more than 2 endpoints on
-the anyon, or if the new endpoint has the same direction as the existing anyon endpoint (the two anyon
-curvepieces in a tile must have opposing directions: one IN and one OUT).
-"""
+"""Pushes an EndpointRef onto the anyon. Errors if this would result in more than 2 endpoints on the anyon."""
 function _push_anyon_EndpointRef!(t::Tile, eref::EndpointRef)
     length(t._anyon_endpoints) < 2 || throw(ArgumentError("cannot add another EndpointRef to the anyon"))
-    if length(t._anyon_endpoints) == 1
-        existing_dir = get_endpoint(t, first(t._anyon_endpoints)).direction
-        new_dir      = get_endpoint(t, eref).direction
-        existing_dir != new_dir || throw(ArgumentError(
-            "anyon curvepieces must have opposing directions; both are $new_dir"))
-    end
     push!(t._anyon_endpoints, eref)
 end
 

@@ -1,22 +1,22 @@
 module CurveDiagrams
 
-### tile.jl ###
 export EndpointDirection, IN, OUT
 export CurvepieceEndpoint, AnyonEndpoint, EdgeEndpoint
-export Curvepiece, EndpointRef, Tile
-# edge/tile geometry
-export num_edges, next_edge, prev_edge
-# endpoint queries
-export has_endpoints, num_endpoints, num_anyon_curvepieces
-export curvepiece_ids, get_curvepiece, get_endpoint
-export get_edge_EndpointRef, get_edge_EndpointRefs, get_anyon_EndpointRefs, get_anyon_EndpointRef
+export Curvepiece
+include("tile/curvepiece.jl")
+
+export EndpointRef, Tile
+export num_edges, next_edge, prev_edge # tile geometry
+export has_endpoints, num_endpoints
+export num_anyon_curvepieces, curvepiece_ids, get_curvepiece
+export get_endpoint
+export get_edge_EndpointRef, get_edge_EndpointRefs, get_anyon_EndpointRefs
 export get_partner_EndpointRef, has_edge_partner, has_anyon_partner
+export get_anyon_EndpointRef, is_anyon_curvepiece, get_anyon_cp_ids, get_partner_cp_id, anyon_curve_id
 export next_EndpointRef_on_edge, prev_EndpointRef_on_edge, next_EndpointRef, prev_EndpointRef
-export EndpointRefs_between
 # mutators
 export insert_curvepiece!, remove_curvepiece!, move_endpoint!, set_curvepiece_metadata!
-
-include("tile.jl")
+include("tile/tile.jl")
 
 # ### lattice.jl ###
 # export CurvepieceRef, Lattice

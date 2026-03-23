@@ -1,2 +1,2 @@
 include("CurveDiagramsTest.jl")
-FibErrThreshTest.runtests()
+CurveDiagramsTest.runtests()

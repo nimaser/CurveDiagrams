@@ -26,13 +26,21 @@ or a torus. The fields of this struct should not be directly modified by the use
 `_adjacency[tile_id][edge]` gives a `TileEdgeRef` for the corresponding edge in the neighboring tile
 `_curvediagrams[curve_id]` gives the `CurveDiagram` with id `curve_id`
 
+`_curvediagrams` is stored as an array which has a uniform eltype of `CurveDiagram` - this means that
+unlike the case of `_curvepieces` in `Tile`, we don't need to store `nothing` but can just use empty
+vectors for deleted curve diagrams, meaning our array is homogeneously typed. Furthermore, we assume
+that we have a reasonable upper bound on the number of curve diagrams created, meaning the array size
+has a maximum, and it can't be more than the number of simulated tiles, which is not going to be more
+than a few hundred, meaning worst case we have a few hundred pointers to empty lists, which is not
+extraordinarily memory intensive.
+
 The `Lattice` constructor accepts a filled `adjacency` and creates the necessary `Tile`s and other
 internal datastructures.
 """
 struct Lattice
     _tiles::Vector{Tile}
     _adjacency::Vector{Vector{TileEdgeRef}}
-    _curvediagrams::Dict{Int, CurveDiagram}
+    _curvediagrams::Vector{CurveDiagram}
     function Lattice(adjacency::Vector{Vector{TileEdgeRef}})
         tiles = Tile[]
         for tile_id in 1:length(adjacency)
@@ -47,7 +55,7 @@ struct Lattice
             # add the tile to the list
             push!(tiles, Tile(length(adjacency[tile_id])))
         end
-        curvediagrams = Dict{Int, CurveDiagram}()
+        curvediagrams = CurveDiagram[]
         new(tiles, adjacency, curvediagrams)
     end
 end
@@ -56,6 +64,24 @@ end
 
 """Returns the `Tile` with id `tile_id` in `l`."""
 get_tile(l::Lattice, tile_id::Int) = l._tiles[tile_id]
+
+"""Returns the number of tiles in the lattice."""
+num_tiles(l::Lattice) = length(l._tiles)
+
+"""
+Returns the number of allocated curve ids, including ids for deleted (empty) curve diagrams.
+Use `curve_ids(l)` to get only active curves.
+"""
+num_curves(l::Lattice) = length(l._curvediagrams)
+
+"""
+A deleted curve diagram has had its `CurvepieceRef`s removed and its id permanently retired.
+A deleted id will never be reallocated by `_allocate_curve_id!`.
+"""
+is_deleted(l::Lattice, curve_id::Int) = isempty(l._curvediagrams[curve_id])
+
+"""Returns all non-deleted curve ids, in allocation order."""
+curve_ids(l::Lattice) = [i for i in 1:num_curves(l) if !is_deleted(l, i)]
 
 """Returns the `TileEdgeRef` for the edge corresponding to the provided one."""
 corresponding_edge(l::Lattice, tile_id::Int, edge::Int) = l._adjacency[tile_id][edge]
@@ -74,7 +100,7 @@ sibling endpoint. Note that because endpoint positions on edges are assigned clo
 if an endpoint has position `n` out of `N` total endpoints on an edge, its sibling endpoint has position
 `N - n + 1` on the corresponding edge.
 """
-function sibling_endpoint(l::Lattice, tile_id::Int, eid::EndpointId)
+function sibling_endpoint(l::Lattice, tile_id::Int, eid::EndpointRef)
     ep::EdgeEndpoint = get_endpoint(get_tile(l, tile_id), eid)
     cedge = corresponding_edge(l, tile_id, ep.edge)
     neighbortile = get_tile(l, cedge.tile_id)
@@ -113,97 +139,155 @@ function anyon_tiles(l::Lattice, curve_id::Int)
     ids
 end
 
+"""
+Returns the tile and curvepiece ids for the curvepiece which precedes `cp_id` in its
+curve diagram.
+
+For `cp_id` being an edge-to-edge curvepiece:
+Returns `(neighbor_tile_id, neighbor_cp_id)` for the corresponding curvepiece across the
+edge hosting `endpoint1` (the `IN` endpoint) of the given curvepiece `cp_id`. This is
+the curvepiece that comes *before* `cp_id` in curve diagram traversal order.
+
+If `cp_id` is an edge-to-anyon curvepiece, it will do the above or return the other
+edge-to-anyon curvepiece in the same tile, depending on whether `cp_id` refers to the
+first or second such curvepiece in the tile.
+
+Returns `nothing` if `endpoint1` is an `AnyonEndpoint` (the curvepiece is at
+the start of its curve).
+"""
+function prev_curvepiece(l::Lattice, tile_id::Int, cp_id::Int)
+    t = get_tile(l, tile_id)
+    cp = get_curvepiece(t, cp_id)
+    if cp.endpoint1 isa AnyonEndpoint
+        partner = get_anyon_partner_cp_id(t, cp_id)
+        partner === nothing && return nothing
+        return tile_id, partner
+    end
+    neighbor_tile_id, neighbor_eref = sibling_endpoint(l, tile_id, EndpointRef(cp_id, 1))
+    neighbor_tile_id, neighbor_eref.cp_id
+end
+
+"""
+Returns the tile and curvepiece ids for the curvepiece which follows `cp_id` in its
+curve diagram.
+
+For `cp_id` being an edge-to-edge curvepiece:
+Returns `(neighbor_tile_id, neighbor_cp_id)` for the corresponding curvepiece across the
+edge hosting `endpoint2` (the `OUT` endpoint) of the given curvepiece `cp_id`. This is
+the curvepiece that comes *after* `cp_id` in curve diagram traversal order.
+
+If `cp_id` is an edge-to-anyon curvepiece, it will do the above or return the other
+edge-to-anyon curvepiece in the same tile, depending on whether `cp_id` refers to the
+first or second such curvepiece in the tile.
+
+Returns `nothing` if `endpoint2` is an `AnyonEndpoint` (the curvepiece is at
+the end of its curve).
+"""
+function next_curvepiece(l::Lattice, tile_id::Int, cp_id::Int)
+    t = get_tile(l, tile_id)
+    cp = get_curvepiece(t, cp_id)
+    if cp.endpoint2 isa AnyonEndpoint
+        partner = get_anyon_partner_cp_id(t, cp_id)
+        partner === nothing && return nothing
+        return tile_id, partner
+    end
+    neighbor_tile_id, neighbor_eref = sibling_endpoint(l, tile_id, EndpointRef(cp_id, 2))
+    neighbor_tile_id, neighbor_eref.cp_id
+end
+
 ### INTERNAL MUTATORS ###
 
-# Row/column offset for each edge on a pointy-top hex grid with odd-row offset.
-# Edges numbered clockwise: 1=E, 2=SE, 3=SW, 4=W, 5=NW, 6=NE.
-function _hex_offset(edge::Int, row::Int)::Tuple{Int,Int}
-    if isodd(row)
-        if edge == 1; ( 0,  1)
-        elseif edge == 2; ( 1,  1)
-        elseif edge == 3; ( 1,  0)
-        elseif edge == 4; ( 0, -1)
-        elseif edge == 5; (-1,  0)
-        else;             (-1,  1)   # edge == 6
-        end
-    else
-        if edge == 1; ( 0,  1)
-        elseif edge == 2; ( 1,  0)
-        elseif edge == 3; ( 1, -1)
-        elseif edge == 4; ( 0, -1)
-        elseif edge == 5; (-1, -1)
-        else;             (-1,  0)   # edge == 6
-        end
-    end
-end
-
-# ---- path mutators ----
-
-function _insert_path_entry!(l::Lattice, curve_id::Int, pos::Int, ref::CurvepieceRef)
-    insert!(l.paths[curve_id], pos, ref)
-end
-
-function _remove_path_entry!(l::Lattice, curve_id::Int, pos::Int)
-    deleteat!(l.paths[curve_id], pos)
-end
-
+"""Returns the next curve_id to be assigned."""
 function _allocate_curve_id!(l::Lattice)
-    push!(l.paths, CurvepieceRef[])
-    length(l.paths)
+    push!(l._curvediagrams, CurvepieceRef[])
+    length(l._curvediagrams)
 end
 
-# ---- constructors ----
-
-# Hexagonal lattice on a torus: all edges wrap around.
-function hexagonal_torus(Nr::Int, Nc::Int)
-    flat(r, c) = (c - 1) * Nr + r
-    n = Nr * Nc
-    tiles     = [Tile(6) for _ in 1:n]
-    adjacency = [[Union{Nothing,Tuple{Int,Int}}(nothing) for _ in 1:6] for _ in 1:n]
-    for r in 1:Nr, c in 1:Nc
-        tid = flat(r, c)
-        for e in 1:6
-            dr, dc = _hex_offset(e, r)
-            nr = mod(r + dr - 1, Nr) + 1
-            nc = mod(c + dc - 1, Nc) + 1
-            adjacency[tid][e] = (flat(nr, nc), conjugate_edge(e))
-        end
-    end
-    Lattice(tiles, adjacency, Vector{CurvepieceRef}[])
+"""
+Inserts `ref` at position `pos` in the curve diagram with id `curve_id`.
+"""
+function _insert_curvediagram_curvepiece!(l::Lattice, curve_id::Int, pos::Int, ref::CurvepieceRef)
+    insert!(l._curvediagrams[curve_id], pos, ref)
 end
 
-# Hexagonal lattice on a sphere: boundary edges connect to a single outer plaquette.
-# The outer plaquette has one edge per boundary edge of the grid; it never holds anyons.
-function hexagonal_sphere(Nr::Int, Nc::Int)
-    flat(r, c) = (c - 1) * Nr + r
-    n = Nr * Nc
-    tiles     = [Tile(6) for _ in 1:n]
-    adjacency = Vector{Vector{Union{Nothing,Tuple{Int,Int}}}}(
-        [[nothing for _ in 1:6] for _ in 1:n])
-
-    boundary = Tuple{Int,Int}[]   # (tile_id, edge) pairs with no regular neighbor
-    for r in 1:Nr, c in 1:Nc
-        tid = flat(r, c)
-        for e in 1:6
-            dr, dc = _hex_offset(e, r)
-            nr, nc = r + dr, c + dc
-            if 1 <= nr <= Nr && 1 <= nc <= Nc
-                adjacency[tid][e] = (flat(nr, nc), conjugate_edge(e))
-            else
-                push!(boundary, (tid, e))
-            end
-        end
-    end
-
-    # Outer plaquette: one edge per boundary edge, numbered in discovery order.
-    M        = length(boundary)
-    outer_id = n + 1
-    push!(tiles, Tile(M))
-    push!(adjacency, [Union{Nothing,Tuple{Int,Int}}(nothing) for _ in 1:M])
-    for (outer_edge, (tid, e)) in enumerate(boundary)
-        adjacency[tid][e]         = (outer_id, outer_edge)
-        adjacency[outer_id][outer_edge] = (tid, e)
-    end
-
-    Lattice(tiles, adjacency, Vector{CurvepieceRef}[])
+"""
+Removes the entry at position `pos` from the curve diagram with id `curve_id`.
+"""
+function _remove_curvediagram_entry!(l::Lattice, curve_id::Int, pos::Int)
+    deleteat!(l._curvediagrams[curve_id], pos)
 end
+
+"""
+Returns the 1-based position in the curve diagram where `CurvepieceRef(tile_id, cp_id)` appears,
+or `nothing` if not found.
+"""
+function _find_curve_position(l::Lattice, curve_id::Int, tile_id::Int, cp_id::Int)
+    target = CurvepieceRef(tile_id, cp_id)
+    findfirst(==(target), l._curvediagrams[curve_id])
+end
+
+"""
+For every entry in the curve diagram at list-position >= `from_pos`, calls
+`set_curvepiece_metadata!` on its tile to add `delta` to `anyon_count`.
+Call with `delta=+1` after inserting an anyon, `delta=-1` after removing one.
+"""
+function _shift_curve_positions!(l::Lattice, curve_id::Int, from_pos::Int, delta::Int)
+    diagram = l._curvediagrams[curve_id]
+    for pos in from_pos:length(diagram)
+        ref = diagram[pos]
+        t = get_tile(l, ref.tile_id)
+        cp = get_curvepiece(t, ref.cp_id)
+        set_curvepiece_metadata!(t, ref.cp_id, cp.curve_id, cp.anyon_count + delta)
+    end
+end
+
+"""
+Empties `l._curvediagrams[curve_id]`, permanently retiring the id.
+All `CurvepieceRef`s in the diagram must have been removed from their tiles before calling this.
+"""
+function _delete_curvediagram!(l::Lattice, curve_id::Int)
+    isempty(l._curvediagrams[curve_id]) || throw(ArgumentError("curvediagram $curve_id not empty"))
+    empty!(l._curvediagrams[curve_id])
+end
+
+"""
+Updates the `curve_id` field on every `Curvepiece` in every tile that currently has `old_curve_id`,
+replacing it with `new_curve_id`. Used in `merge!` after the two `CurveDiagram` vectors have been
+concatenated into the surviving curve. Does not delete `old_curve_id`; call `_delete_curvediagram!`
+separately.
+"""
+function _relabel_curve!(l::Lattice, old_curve_id::Int, new_curve_id::Int)
+    for ref in l._curvediagrams[new_curve_id]
+        t = get_tile(l, ref.tile_id)
+        cp = get_curvepiece(t, ref.cp_id)
+        cp.curve_id == old_curve_id || continue
+        set_curvepiece_metadata!(t, ref.cp_id, new_curve_id, cp.anyon_count)
+    end
+end
+
+"""
+Returns the edge numbers `(edge1, edge2)` such that `_adjacency[tile_id1][edge1]` points to
+`tile_id2` and vice versa. Throws `ArgumentError` if the tiles do not share an edge.
+"""
+function _shared_edge(l::Lattice, tile_id1::Int, tile_id2::Int)
+    for (e, ter) in enumerate(l._adjacency[tile_id1])
+        ter.tile_id == tile_id2 && return e, ter.edge
+    end
+    throw(ArgumentError("tiles $tile_id1 and $tile_id2 do not share an edge"))
+end
+
+"""Returns `(cp_id, eref)` pairs for all curvepieces in `tile_id` with an endpoint on `edge`."""
+function _curvepieces_on_edge(l::Lattice, tile_id::Int, edge::Int)
+    t = get_tile(l, tile_id)
+    [(eref.cp_id, eref) for eref in get_edge_EndpointRefs(t, edge)]
+end
+
+### PUBLIC MUTATORS ###
+
+# these are the public mutators for curvediagrams on the lattice
+include("latticemutators.jl")
+
+### LATTICE CONSTRUCTOR HELPERS ###
+
+# these helpers make adjacency matrices for spherical, hexagonal etc lattices
+include("latticeconstructors.jl")
