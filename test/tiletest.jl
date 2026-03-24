@@ -276,9 +276,7 @@ end
 
 @testset "Tile public mutators" begin
 
-    ### insert_curvepiece! edge-to-edge version ###
-
-    # basic insertion: returns cp_id=1, creates correct curvepiece
+    # basic edge-to-edge insertion: returns cp_id=1, creates correct curvepiece
     let t = Tile(4)
         id = insert_curvepiece!(t, 10, 1, 1, 1, 3, 1)
         @test id == 1
@@ -291,126 +289,136 @@ end
         @test get_edge_EndpointRef(t, 3, 1) == EndpointRef(1, 2)
     end
 
-    # cp_id increments on successive insertions
+    # basic edge-to-anyon insertion: returns cp_id=1, creates correct curvepiece
     let t = Tile(4)
-        id1 = insert_curvepiece!(t, 10, 1, 1, 1, 3, 1)
-        id2 = insert_curvepiece!(t, 20, 1, 2, 1, 4, 1)
-        @test id1 == 1
-        @test id2 == 2
-        @test curvepiece_ids(t) == [1, 2]
-    end
-
-    # same-edge insertion: pos2 is adjusted; both endpoints land correctly
-    let t = Tile(4)
-        # insert with pos1=1, pos2=1 (same edge, same raw position) ->
-        # after inserting IN endpoint at pos 1, OUT should land at pos 2
-        id = insert_curvepiece!(t, 10, 1, 1, 1, 1, 1)
-        @test num_endpoints(t, 1) == 2
-        @test get_edge_EndpointRef(t, 1, 1) == EndpointRef(1, 1)
-        @test get_edge_EndpointRef(t, 1, 2) == EndpointRef(1, 2)
-        ep1 = get_endpoint(t, EndpointRef(1, 1))::EdgeEndpoint
-        ep2 = get_endpoint(t, EndpointRef(1, 2))::EdgeEndpoint
-        @test ep1.pos == 1 && ep2.pos == 2
-    end
-
-    # inserting two curvepieces on the same edge shifts positions correctly
-    let t = Tile(4)
-        # cp1: edge1 pos1 (IN) -> edge3 pos1 (OUT)
-        insert_curvepiece!(t, 10, 1, 1, 1, 3, 1)
-        # cp2: insert IN at edge1 pos1, shifts cp1's IN to pos2
-        insert_curvepiece!(t, 20, 1, 1, 1, 2, 1)
-        @test num_endpoints(t, 1) == 2
-        # new cp2 IN is at pos 1, old cp1 IN shifted to pos 2
-        @test get_edge_EndpointRef(t, 1, 1) == EndpointRef(2, 1)
-        @test get_edge_EndpointRef(t, 1, 2) == EndpointRef(1, 1)
-        # cp1's stored endpoint1 position should be updated
-        @test (get_endpoint(t, EndpointRef(1, 1))::EdgeEndpoint).pos == 2
-    end
-
-    # validation: inserting a cp whose arc splits an existing cp's endpoints → error
-    let t = Tile(4)
-        # existing cp: edge1,pos1 (IN) -> edge3,pos1 (OUT)
-        insert_curvepiece!(t, 10, 1, 1, 1, 3, 1)
-        # new cp would go edge2,pos1 -> edge4,pos1; the arc from edge2 to edge4
-        # passes through edge3, where one endpoint of cp1 lives (pos1); its partner
-        # is on edge1 which is outside the arc → invalid
-        @test_throws ArgumentError insert_curvepiece!(t, 20, 1, 2, 1, 4, 1)
-    end
-
-    # validation: arc crossing one of two anyon-cp boundary points → error
-    let t = Tile(4)
-        # two anyon cps: their edge endpoints are at edge1,pos1 and edge3,pos1
-        insert_curvepiece!(t, 5, 1, 1, 1, IN, 5, 1)
-        insert_curvepiece!(t, 3, 1, IN, 5, 2)
-        # new edge-to-edge cp from edge2,pos1 to edge4,pos1: arc from edge2→edge4
-        # passes through edge3, pos1 (one anyon boundary), but not edge1, pos1 → invalid
-        @test_throws ArgumentError insert_curvepiece!(t, 99, 1, 2, 1, 4, 1)
-    end
-
-    # --- insert_curvepiece! edge-to-anyon ---
-
-    # first anyon cp is always valid; returns correct cp_id and stores endpoints
-    let t = Tile(4)
-        id = insert_curvepiece!(t, 1, 1, IN, 10, 1)
+        id = insert_curvepiece!(t, 10, 1, 1, 1, IN)
         @test id == 1
         @test num_anyon_curvepieces(t) == 1
         @test is_anyon_curvepiece(t, 1)
         cp = get_curvepiece(t, 1)
         @test cp.curve_id == 10
         @test cp.anyon_count == 1
+        @test cp.endpoint1 == EdgeEndpoint(IN, 1, 1)
+        @test cp.endpoint2 == AnyonEndpoint(IN)
+        @test get_edge_EndpointRef(t, 1, 1) == EndpointRef(1, 1)
     end
 
-    # second anyon cp with matching curve_id succeeds
+    # cp_id increments on successive insertions
     let t = Tile(4)
-        insert_curvepiece!(t, 1, 1, IN, 10, 1)
-        id2 = insert_curvepiece!(t, 3, 1, IN, 10, 2)
+        id1 = insert_curvepiece!(t, 10, 1, 1, 1, 2, 1)
+        id2 = insert_curvepiece!(t, 20, 1, 3, 1, 4, 1)
+        id3 = insert_curvepiece!(t, 30, 1, 2, 2, IN)
+        @test id1 == 1
+        @test id2 == 2
+        @test id3 == 3
+        @test curvepiece_ids(t) == [1, 2, 3]
+    end
+
+    # same edge insertion, IN then OUT
+    let t = Tile(4)
+        id = insert_curvepiece!(t, 10, 1, 1, 1, 1, 2)
+        @test num_endpoints(t, 1) == 2
+        @test get_edge_EndpointRef(t, 1, 1) == EndpointRef(1, 1)  # IN endpoint
+        @test get_edge_EndpointRef(t, 1, 2) == EndpointRef(1, 2)  # OUT endpoint
+        @test (get_endpoint(t, EndpointRef(1, 1))::EdgeEndpoint).direction == IN
+        @test (get_endpoint(t, EndpointRef(1, 2))::EdgeEndpoint).direction == OUT
+    end
+
+    # same edge insertion, OUT then IN
+    let t = Tile(4)
+        id = insert_curvepiece!(t, 10, 1, 1, 1, 1, 1)
+        @test num_endpoints(t, 1) == 2
+        @test get_edge_EndpointRef(t, 1, 1) == EndpointRef(1, 2)  # OUT endpoint
+        @test get_edge_EndpointRef(t, 1, 2) == EndpointRef(1, 1)  # IN endpoint
+        @test (get_endpoint(t, get_edge_EndpointRef(t, 1, 1))::EdgeEndpoint).direction == OUT
+        @test (get_endpoint(t, get_edge_EndpointRef(t, 1, 2))::EdgeEndpoint).direction == IN
+    end
+
+    # inserting two curvepieces on the same edge shifts positions correctly
+    let t = Tile(4)
+        # insert two nested curvepieces, both with the same IN endpoint location
+        insert_curvepiece!(t, 10, 1, 1, 1, 2, 1)
+        insert_curvepiece!(t, 20, 1, 1, 1, 3, 1)
+        @test num_endpoints(t, 1) == 2
+        # cp2 IN is at pos 1, old cp1 IN shifted to pos 2
+        @test get_edge_EndpointRef(t, 1, 1) == EndpointRef(2, 1)
+        @test get_edge_EndpointRef(t, 1, 2) == EndpointRef(1, 1)
+        # cp1's stored endpoint1 position should be updated
+        @test (get_endpoint(t, EndpointRef(1, 1))::EdgeEndpoint).pos == 2
+    end
+
+    # inserting a curvepiece which splits an existing curvepiece's endpoints throws error
+    let t = Tile(4)
+        insert_curvepiece!(t, 10, 1, 1, 1, 3, 1)
+        @test_throws ArgumentError insert_curvepiece!(t, 20, 1, 2, 1, 4, 1)
+    end
+
+    # inserting two anyon curvepieces with correct curve_ids
+    let t = Tile(4)
+        insert_curvepiece!(t, 10, 1, 1, 1, IN)
+        insert_curvepiece!(t, 10, 2, 3, 1, OUT)
         @test num_anyon_curvepieces(t) == 2
         @test is_anyon_curvepiece(t, 2)
     end
 
-    # third anyon cp throws
+    # third anyon curvepiece throws error
     let t = Tile(4)
-        insert_curvepiece!(t, 1, 1, IN, 10, 1)
-        insert_curvepiece!(t, 3, 1, IN, 10, 2)
-        @test_throws ArgumentError insert_curvepiece!(t, 2, 1, IN, 10, 3)
+        insert_curvepiece!(t, 10, 1, 1, 1, IN)
+        insert_curvepiece!(t, 10, 2, 3, 1, OUT)
+        @test_throws ArgumentError insert_curvepiece!(t, 10, 3, 2, 1, IN)
     end
 
-    # curve_id mismatch throws
+    # curve_id mismatch throws error
     let t = Tile(4)
-        insert_curvepiece!(t, 1, 1, IN, 10, 1)
-        @test_throws ArgumentError insert_curvepiece!(t, 2, 1, IN, 99, 2)
+        insert_curvepiece!(t, 10, 1, 1, 1, IN)
+        @test_throws ArgumentError insert_curvepiece!(t, 20, 2, 2, 1, OUT)
     end
 
-    # validation: second anyon cp whose partition splits an edge-to-edge cp → error
+    # direction incompatibility throws error
     let t = Tile(4)
-        # edge-to-edge cp: edge1,pos1 -> edge3,pos1
+        insert_curvepiece!(t, 10, 1, 1, 1, IN)
+        @test_throws ArgumentError insert_curvepiece!(t, 10, 2, 2, 1, IN)
+    end
+
+    # can add anyon curvepieces in the presense of an edge-to-edge cp
+    let t = Tile(4)
         insert_curvepiece!(t, 10, 1, 1, 1, 3, 1)
-        # first anyon cp at edge2,pos1 (no partition yet, always valid)
-        insert_curvepiece!(t, 2, 1, IN, 5, 1)
-        # second anyon cp at edge4,pos1: partition goes from edge4,pos1 to edge2,pos1
-        # the arc from edge4→edge2 passes through edge1 (one endpoint of the edge-to-edge cp)
-        # but not edge3 → splits the edge-to-edge cp → invalid
-        @test_throws ArgumentError insert_curvepiece!(t, 4, 1, IN, 5, 2)
+        insert_curvepiece!(t, 20, 1, 2, 1, IN)
+        insert_curvepiece!(t, 20, 2, 2, 2, OUT)
     end
 
-    # --- remove_curvepiece! ---
-
-    # removing an edge-to-edge curvepiece cleans up both edge positions and shifts remaining
+    # inserting an anyon curvepiece which splits an existing curvepiece's endpoints throws error
     let t = Tile(4)
+        insert_curvepiece!(t, 10, 1, 1, 1, 3, 1)
+        insert_curvepiece!(t, 20, 1, 2, 1, IN)
+        @test_throws ArgumentError insert_curvepiece!(t, 20, 2, 4, 1, IN)
+    end
+
+    # inserting an edge-to-edge curvepiece which intersects the anyon curvepieces throws error
+    let t = Tile(4)
+        insert_curvepiece!(t, 10, 1, 1, 1, IN)
+        insert_curvepiece!(t, 10, 2, 3, 1, OUT)
+        @test_throws ArgumentError insert_curvepiece!(t, 20, 1, 2, 1, 4, 1)
+    end
+
+    # removing edge-to-edge curvepiece
+    let t = Tile(4)
+        # insert curvepieces
         id1 = insert_curvepiece!(t, 10, 1, 1, 1, 3, 1)
-        id2 = insert_curvepiece!(t, 20, 1, 1, 2, 2, 1)  # IN at edge1,pos2
+        id2 = insert_curvepiece!(t, 20, 1, 1, 2, 2, 1)
+        # make sure curvepiece was removed correctly
         remove_curvepiece!(t, id1)
         @test curvepiece_ids(t) == [id2]
         @test num_endpoints(t, 1) == 1
         @test num_endpoints(t, 3) == 0
-        # cp2's endpoint1 was at edge1,pos2; after removing cp1 (which was at pos1) it shifts to pos1
+        # remaining endpoint and eref positions are correct
         @test (get_endpoint(t, EndpointRef(id2, 1))::EdgeEndpoint).pos == 1
         @test get_edge_EndpointRef(t, 1, 1) == EndpointRef(id2, 1)
     end
 
-    # removing an anyon curvepiece cleans up anyon_endpoints
+    # removing an edge-to-anyon curvepiece
     let t = Tile(4)
-        id = insert_curvepiece!(t, 1, 1, IN, 10, 1)
+        id = insert_curvepiece!(t, 10, 1, 1, 1, IN)
         @test num_anyon_curvepieces(t) == 1
         remove_curvepiece!(t, id)
         @test num_anyon_curvepieces(t) == 0
@@ -419,24 +427,23 @@ end
 
     # removing one of two anyon curvepieces leaves the other intact
     let t = Tile(4)
-        id1 = insert_curvepiece!(t, 1, 1, IN, 10, 1)
-        id2 = insert_curvepiece!(t, 3, 1, IN, 10, 2)
+        id1 = insert_curvepiece!(t, 10, 1, 1, 1, IN)
+        id2 = insert_curvepiece!(t, 10, 2, 3, 1, OUT)
         remove_curvepiece!(t, id1)
         @test num_anyon_curvepieces(t) == 1
         @test is_anyon_curvepiece(t, id2)
     end
 
-    # --- move_endpoint! ---
-
-    # basic move to a different edge
+    # move to a different edge
     let t = Tile(4)
         id = insert_curvepiece!(t, 10, 1, 1, 1, 3, 1)
-        eref = EndpointRef(id, 1)  # the IN endpoint on edge 1
+        eref = EndpointRef(id, 1) # IN endpoint
         move_endpoint!(t, eref, 2, 1)
         ep = get_endpoint(t, eref)::EdgeEndpoint
         @test ep.edge == 2 && ep.pos == 1
         @test num_endpoints(t, 1) == 0
         @test num_endpoints(t, 2) == 1
+        @test num_endpoints(t, 3) == 1
         @test get_edge_EndpointRef(t, 2, 1) == eref
     end
 
@@ -444,49 +451,62 @@ end
     let t = Tile(4)
         id1 = insert_curvepiece!(t, 10, 1, 1, 1, 3, 1)
         id2 = insert_curvepiece!(t, 20, 1, 1, 2, 2, 1)
-        # edge 1 now has: [EndpointRef(id1,1) at pos1, EndpointRef(id2,1) at pos2]
-        # move cp1's IN from pos1 to pos3 (i.e., after cp2's IN)
         eref = EndpointRef(id1, 1)
-        move_endpoint!(t, eref, 1, 3)
-        @test num_endpoints(t, 1) == 2
+        move_endpoint!(t, eref, 2, 2) # move cp1
+        @test num_endpoints(t, 1) == 1
+        @test num_endpoints(t, 2) == 2
+        @test num_endpoints(t, 3) == 1
         @test get_edge_EndpointRef(t, 1, 1) == EndpointRef(id2, 1)
-        @test get_edge_EndpointRef(t, 1, 2) == EndpointRef(id1, 1)
-        @test (get_endpoint(t, EndpointRef(id1, 1))::EdgeEndpoint).pos == 2
-        @test (get_endpoint(t, EndpointRef(id2, 1))::EdgeEndpoint).pos == 1
+        @test get_edge_EndpointRef(t, 2, 2) == EndpointRef(id1, 1)
+        ep = get_endpoint(t, eref)::EdgeEndpoint
+        @test ep.edge == 2
+        @test ep.pos == 2
     end
 
     # move backward on same edge
     let t = Tile(4)
-        id1 = insert_curvepiece!(t, 10, 1, 1, 1, 3, 1)
-        id2 = insert_curvepiece!(t, 20, 1, 1, 2, 2, 1)
-        # edge 1: [cp1 IN at pos1, cp2 IN at pos2]; move cp2 IN to pos 1 (before cp1)
+        id1 = insert_curvepiece!(t, 10, 1, 1, 1, 1, 2)
+        id2 = insert_curvepiece!(t, 20, 1, 1, 3, 2, 1)
         eref = EndpointRef(id2, 1)
         move_endpoint!(t, eref, 1, 1)
         @test get_edge_EndpointRef(t, 1, 1) == EndpointRef(id2, 1)
         @test get_edge_EndpointRef(t, 1, 2) == EndpointRef(id1, 1)
+        ep = get_endpoint(t, eref)::EdgeEndpoint
+        @test ep.edge == 1
+        @test ep.pos == 1
     end
 
-    # validation: move that would intersect another curvepiece → error
+    # move that intersects another edge-to-edge curvepiece throws error
     let t = Tile(4)
-        # cp1: edge1,pos1 (IN) -> edge3,pos1 (OUT)
-        # cp2: edge2,pos1 (IN) -> edge4,pos1 (OUT)
-        id1 = insert_curvepiece!(t, 10, 1, 1, 1, 3, 1)
-        id2 = insert_curvepiece!(t, 20, 1, 2, 1, 4, 1)
-        # moving cp1's OUT from edge3,pos1 to edge1,pos2 would cross cp2
-        @test_throws ArgumentError move_endpoint!(t, EndpointRef(id1, 2), 1, 2)
+        id1 = insert_curvepiece!(t, 10, 1, 1, 1, 2, 1)
+        id2 = insert_curvepiece!(t, 20, 1, 2, 2, 3, 1)
+        @test_throws ArgumentError move_endpoint!(t, EndpointRef(id2, 1), 2, 1)
     end
 
-    # --- set_curvepiece_metadata! ---
+    # move that intersects an edge-to-anyon curvepiece throws error
+    let t = Tile(4)
+        id1 = insert_curvepiece!(t, 10, 1, 1, 1, 2, 1)
+        id2 = insert_curvepiece!(t, 20, 1, 2, 2, 3, 1)
+        id3 = insert_curvepiece!(t, 30, 1, 3, 2, IN)
+        id4 = insert_curvepiece!(t, 30, 2, 4, 1, OUT)
+        @test_throws ArgumentError move_endpoint!(t, EndpointRef(id4, 2), 1, 2)
+    end
 
+    # can't move an anyon endpoint
+    let t = Tile(4)
+        id1 = insert_curvepiece!(t, 10, 1, 1, 1, IN)
+        @test_throws Exception move_endpoint!(t, EndpointRef(id1, 2), 2, 1)
+    end
+
+    # setting curvepiece metadata correctly
     let t = Tile(4)
         id = insert_curvepiece!(t, 10, 1, 1, 1, 3, 1)
-        set_curvepiece_metadata!(t, id, 99, 5)
+        set_curvepiece_metadata!(t, id, 20, 2)
         cp = get_curvepiece(t, id)
-        @test cp.curve_id == 99
-        @test cp.anyon_count == 5
+        @test cp.curve_id == 20
+        @test cp.anyon_count == 2
         # endpoints unchanged
         @test cp.endpoint1 == EdgeEndpoint(IN, 1, 1)
         @test cp.endpoint2 == EdgeEndpoint(OUT, 3, 1)
     end
-
 end

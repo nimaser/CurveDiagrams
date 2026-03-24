@@ -41,8 +41,8 @@ end
 """
 Validates that the clockwise arc `(edge1, pos1) → (edge2, pos2)` is a valid edge-to-edge
 partition: no existing curvepiece is split by it. Throws `ArgumentError` if:
-- any edge-to-edge curvepiece has exactly one endpoint in the arc, or
-- there are two anyon curvepieces and exactly one of their edge endpoints lies in the arc.
+- any edge-to-edge curvepiece has exactly one endpoint in the arc
+- there are two anyon curvepieces and exactly one of their edge endpoints lies in the arc
 
 `exclude` optionally removes one `EndpointRef` from the arc before checking. This is useful
 for the case when an eref is being moved to a new location and its old location shouldn't
@@ -122,12 +122,13 @@ end
 ### PUBLIC MUTATORS ###
 
 """
-Insert an edge-to-edge curvepiece. `edge1`, `pos1` is the IN endpoint, while `edge2`, `pos2` is the
-OUT endpoint. Both positions are relative to the internal state at the time of the function call,
-meaning that the caller should not 'adjust' for the fact that inserting one endpoint wil shift the
-locations of endpoints. That is, if the two endpoints are on the same edge, `pos2 == pos1 + 1` would
-lead to two endpoints, while `pos2 == pos1 + 2` would lead to endpoints separated by one intervening
-endpoint.
+Insert an edge-to-edge curvepiece. `(edge1, pos1)` is where the IN endpoint is inserted and
+`(edge2, pos2)` is where the OUT endpoint is inserted. `pos2` is relative to the state of the
+tile *after* the IN endpoint has been inserted at `pos1`. Callers must account for this when
+both endpoints share an edge: for example, `pos1 = 1, pos2 = 1` gives OUT-then-IN (OUT is
+inserted at pos 1 after IN has already occupied pos 1, pushing IN to pos 2), while
+`pos1 = 1, pos2 = 2` gives IN-then-OUT. For cross-edge insertions, `pos2` is equivalent to
+the pre-insertion position since inserting on `edge1` does not affect `edge2`.
 
 This function validates attempted insertions against the current state of the tile to ensure that no
 insertion leads to intersecting curve pieces. Note that each edge-to-edge curvepiece partitions the
@@ -151,10 +152,10 @@ function insert_curvepiece!(t::Tile, curve_id::Int, anyon_count::Int,
     edge1::Int, pos1::Int,
     edge2::Int, pos2::Int,
 )
-    _validate_edge_to_edge_insertion(t, edge1, pos1, edge2, pos2)
+    # pos2 is in post-pos1-insertion coordinates; convert to pre-insertion for validation
+    pos2_pre = (edge1 == edge2 && pos2 > pos1) ? pos2 - 1 : pos2
+    _validate_edge_to_edge_insertion(t, edge1, pos1, edge2, pos2_pre)
     cp_id = _allocate_cp_id!(t)
-    # if both endpoints are on the same edge, inserting the first one shifts pos2
-    pos2 = (edge1 == edge2 && pos1 <= pos2) ? pos2 + 1 : pos2
     cp = Curvepiece(curve_id, anyon_count,
         EdgeEndpoint(IN, edge1, pos1), EdgeEndpoint(OUT, edge2, pos2))
     t._curvepieces[cp_id] = cp
@@ -183,13 +184,19 @@ Finally, this function ensures that both curvepieces connected to an anyon have 
 
 Returns the `cp_id` of the created curvepiece.
 """
-function insert_curvepiece!(t::Tile, edge::Int, pos::Int, direction::EndpointDirection,
-                            curve_id::Int, anyon_count::Int)
+function insert_curvepiece!(t::Tile, curve_id::Int, anyon_count::Int,
+    edge::Int, pos::Int, direction::EndpointDirection,
+)
     if num_anyon_curvepieces(t) == 1
-        existing = anyon_curve_id(t)
-        existing != curve_id && throw(ArgumentError(
+        existing_id = anyon_curve_id(t)
+        existing_id != curve_id && throw(ArgumentError(
             "both anyon curvepieces must belong to the same curve; " *
-            "existing curve_id=$existing, new curve_id=$curve_id"))
+            "existing curve_id=$existing_id, new curve_id=$curve_id"))
+        existing_eref = only(get_anyon_EndpointRefs(t))
+        existing_dir = get_endpoint(t, existing_eref).direction
+        existing_dir == direction && throw(ArgumentError(
+            "both anyon curvepieces must have opposite directions; " *
+            "existing direction=$existing_dir, new direction=$direction"))
     end
     _validate_edge_to_anyon_insertion(t, edge, pos)
     cp_id = _allocate_cp_id!(t)
