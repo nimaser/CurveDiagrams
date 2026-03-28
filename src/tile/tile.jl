@@ -124,7 +124,6 @@ is_anyon_curvepiece(t::Tile, cp_id::Int) = get_anyon_EndpointRef(t, cp_id) != no
 """Returns `cp_id`s for all anyon-to-edge curvepieces in `t`."""
 function get_anyon_cp_ids(t::Tile)
     erefs = get_anyon_EndpointRefs(t)
-    erefs == nothing && return nothing
     [eref.cp_id for eref in erefs]
 end
 
@@ -149,7 +148,7 @@ have the same `curve_id`.
 """
 function anyon_curve_id(t::Tile)
     cp_ids = get_anyon_cp_ids(t)
-    cp_ids == nothing && return nothing
+    cp_ids == [] && return nothing
     cp = get_curvepiece(t, first(cp_ids))
     cp.curve_id
 end
@@ -288,8 +287,3 @@ end
 function _remove_anyon_EndpointRef!(t::Tile, eref::EndpointRef)
     delete!(t._anyon_endpoints, eref)
 end
-
-### PUBLIC MUTATORS ###
-
-# placed in a seaparate file for readability
-include("mutators.jl")

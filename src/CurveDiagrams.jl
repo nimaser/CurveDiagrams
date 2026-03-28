@@ -14,22 +14,19 @@ export get_edge_EndpointRef, get_edge_EndpointRefs, get_anyon_EndpointRefs
 export get_partner_EndpointRef, has_edge_partner, has_anyon_partner
 export get_anyon_EndpointRef, is_anyon_curvepiece, get_anyon_cp_ids, get_partner_cp_id, anyon_curve_id
 export next_EndpointRef_on_edge, prev_EndpointRef_on_edge, next_EndpointRef, prev_EndpointRef
-# mutators
-export insert_curvepiece!, remove_curvepiece!, move_endpoint!, set_curvepiece_metadata!
 include("tile/tile.jl")
 
-# ### lattice.jl ###
-# export CurvepieceRef, Lattice
-# # geometric helpers
-# export conjugate_edge
-# # getters
-# export neighbor, sister_endpointid, get_path, get_curve_ids, find_curve, anyon_tiles
-# # mutators
-# export hexagonal_torus, hexagonal_sphere
+export insert_curvepiece!, remove_curvepiece!, move_endpoint!, set_curvepiece_metadata!
+include("tile/mutators.jl")
 
-# include("lattice.jl")
+export CurvepieceRef, TileEdgeRef, Lattice
+export num_tiles, get_tile, corresponding_edge, shared_edge
+export num_curves, curve_ids, get_curvediagram, is_deleted
+export sibling_endpoint, curvepieces_on_edge
+export prev_curvepiece, next_curvepiece, find_curve_position
+export anyon_curve_id, anyon_tiles
+include("lattice/lattice.jl")
 
-### visualization ###
 export visualize!, visualize
 function visualize! end
 function visualize end

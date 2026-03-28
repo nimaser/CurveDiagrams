@@ -1,4 +1,3 @@
-using CurveDiagrams
 import CurveDiagrams: _allocate_cp_id!, _set_endpoint_location!, _set_endpoint_pos!,
     _insert_edge_EndpointRef!, _remove_edge_EndpointRef!, _push_anyon_EndpointRef!
 
