@@ -99,7 +99,7 @@ end
     # @test curvepieces_on_edge(l, 1, 2) == [(cp_id1, EndpointRef(2, 2))]
     # @test curvepieces_on_edge(l, 2, 1) == [(cp_id1, EndpointRef(1, 2))]
     # sibling_endpoint
-    siblingtile, siblingeref = sibling_endpoint(l, 1, EndpointRef(cp_id1, 2))
+    siblingtile, siblingeref = sibling_EndpointRef(l, 1, EndpointRef(cp_id1, 2))
     @test siblingtile == 2
     @test siblingeref.cp_id == cp_id2
     ep = get_endpoint(get_tile(l, 2), siblingeref)::EdgeEndpoint

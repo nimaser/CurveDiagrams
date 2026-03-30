@@ -68,6 +68,9 @@ prev_edge(t::Tile, edge::Int) = mod1(edge - 1, num_edges(t))
 """Whether the edge `edge` in tile `t` has any endpoints on it."""
 has_endpoints(t::Tile, edge::Int) = !isempty(t._edge_endpoints[edge])
 
+"""Whether the edge `edge` in tile `t` has any endpoint at position `pos`."""
+has_endpoint(t::Tile, edge::Int, pos::Int) = 1 <= pos <= num_endpoints(t, edge)
+
 """The number of endpoints present on edge `edge` in `t`."""
 num_endpoints(t::Tile, edge::Int) = length(t._edge_endpoints[edge])
 
@@ -188,8 +191,8 @@ function next_EndpointRef(t::Tile, edge::Int, pos::Int)
         if has_endpoints(t, e) return get_edge_EndpointRef(t, e, 1) end
         e = next_edge(t, e)
     end
-    # we wrapped back around to the starting edge, so return the first endpoint on it
-    get_edge_EndpointRef(t, edge, 1)
+    # we wrapped back around to the starting edge, so return the first endpoint on it, or nothing
+    num_endpoints(t, e) == 0 ? nothing : get_edge_EndpointRef(t, e, 1)
 end
 
 """
@@ -210,7 +213,68 @@ function prev_EndpointRef(t::Tile, edge::Int, pos::Int)
         e = prev_edge(t, e)
     end
     # we wrapped back around to the starting edge, so return the last endpoint on it
-    get_edge_EndpointRef(t, edge, num_endpoints(t, e))
+    num_endpoints(t, e) == 0 ? nothing : get_edge_EndpointRef(t, e, num_endpoints(t, e))
+end
+
+"""
+Collects all `EndpointRef`s in the clockwise arc from `(edge1, pos1)` (inclusive) to
+`(edge2, pos2)` (exclusive) on the boundary of `t`.
+"""
+function EndpointRefs_between(t::Tile, edge1::Int, pos1::Int, edge2::Int, pos2::Int)
+    arc = EndpointRef[]
+    # if the arc is entirely contained within an edge
+    if edge1 == edge2 && pos1 <= pos2
+        for p in pos1:(pos2 - 1)
+            push!(arc, get_edge_EndpointRef(t, edge1, p))
+        end
+    else
+        # get endpoints on the remainder of edge1
+        for p in pos1:num_endpoints(t, edge1)
+            push!(arc, get_edge_EndpointRef(t, edge1, p))
+        end
+        # get all endpoints on intervening edges between edge1 and edge2
+        e = next_edge(t, edge1)
+        while e != edge2
+            for p in 1:num_endpoints(t, e)
+                push!(arc, get_edge_EndpointRef(t, e, p))
+            end
+            e = next_edge(t, e)
+        end
+        # get endpoints on the first part of edge2
+        for p in 1:(pos2 - 1)
+            push!(arc, get_edge_EndpointRef(t, edge2, p))
+        end
+    end
+    arc
+end
+
+"""Returns all `EndpointRef`s in `arc` whose partners are NOT also in `arc`."""
+function unpaired_EndpointRefs(arc::Vector{EndpointRef})
+    arc_set = Set(arc)
+    [eref for eref in arc if get_partner_EndpointRef(eref) ∉ arc_set]
+end
+
+"""
+Orders the `EndpointRef`s in `erefs` according to the order they are encountered
+when traversing the `Tile`s edges clockwise starting at `pos` on `edge`, inclusive.
+
+Throws an error if any element of `erefs` is not in the `Tile`.
+"""
+function order_EndpointRefs(t::Tile, erefs::Set{EndpointRef}, edge::Int, pos::Int)
+    result = EndpointRef[]
+    isempty(erefs) && return result
+    start = has_endpoint(t, edge, pos) ? get_edge_EndpointRef(t, edge, pos) : next_EndpointRef(t, edge, pos)
+    start == nothing && throw(ArgumentError("tile has no endpoints"))
+    current = start
+    while true
+        current ∈ erefs && push!(result, current)
+        length(result) == length(erefs) && break
+        current = next_EndpointRef(t, (get_endpoint(t, current)::EdgeEndpoint).edge,
+                                      (get_endpoint(t, current)::EdgeEndpoint).pos)
+        current == start && break
+    end
+    length(result) == length(erefs) || throw(ArgumentError("not all endpoints found in tile"))
+    result
 end
 
 ### INTERNAL MUTATORS ###

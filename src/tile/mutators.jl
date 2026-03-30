@@ -1,44 +1,6 @@
 ### INTERNAL VALIDATION HELPERS ###
 
 """
-Collects all `EndpointRef`s in the clockwise arc from `(edge1, pos1)` (inclusive) to
-`(edge2, pos2)` (exclusive) on the boundary of `t`.
-"""
-function _EndpointRefs_between(t::Tile, edge1::Int, pos1::Int, edge2::Int, pos2::Int)
-    arc = EndpointRef[]
-    # if the arc is entirely contained within an edge
-    if edge1 == edge2 && pos1 <= pos2
-        for p in pos1:(pos2 - 1)
-            push!(arc, get_edge_EndpointRef(t, edge1, p))
-        end
-    else
-        # get endpoints on the remainder of edge1
-        for p in pos1:num_endpoints(t, edge1)
-            push!(arc, get_edge_EndpointRef(t, edge1, p))
-        end
-        # get all endpoints on intervening edges between edge1 and edge2
-        e = next_edge(t, edge1)
-        while e != edge2
-            for p in 1:num_endpoints(t, e)
-                push!(arc, get_edge_EndpointRef(t, e, p))
-            end
-            e = next_edge(t, e)
-        end
-        # get endpoints on the first part of edge2
-        for p in 1:(pos2 - 1)
-            push!(arc, get_edge_EndpointRef(t, edge2, p))
-        end
-    end
-    arc
-end
-
-"""Returns all `EndpointRef`s in `arc` whose partners are NOT also in `arc`."""
-function _unpaired_EndpointRefs(arc::Vector{EndpointRef})
-    arc_set = Set(arc)
-    [eref for eref in arc if get_partner_EndpointRef(eref) ∉ arc_set]
-end
-
-"""
 Validates that the clockwise arc `(edge1, pos1) → (edge2, pos2)` is a valid edge-to-edge
 partition: no existing curvepiece is split by it. Throws `ArgumentError` if:
 - any edge-to-edge curvepiece has exactly one endpoint in the arc
@@ -50,9 +12,9 @@ affect the validity of the move.
 """
 function _validate_edge_partition(t::Tile, edge1::Int, pos1::Int, edge2::Int, pos2::Int;
                                    exclude::Union{EndpointRef, Nothing}=nothing)
-    arc = _EndpointRefs_between(t, edge1, pos1, edge2, pos2)
+    arc = EndpointRefs_between(t, edge1, pos1, edge2, pos2)
     exclude !== nothing && filter!(r -> r != exclude, arc)
-    unpaired = _unpaired_EndpointRefs(arc)
+    unpaired = unpaired_EndpointRefs(arc)
     unpaired_edge  = [r for r in unpaired if has_edge_partner(t, r)]
     unpaired_anyon = [r for r in unpaired if has_anyon_partner(t, r)]
     if !isempty(unpaired_edge)
@@ -79,9 +41,9 @@ affect the validity of the move.
 """
 function _validate_anyon_partition(t::Tile, edge1::Int, pos1::Int, edge2::Int, pos2::Int;
                                     exclude::Union{EndpointRef, Nothing}=nothing)
-    arc = _EndpointRefs_between(t, edge1, pos1, edge2, pos2)
+    arc = EndpointRefs_between(t, edge1, pos1, edge2, pos2)
     exclude !== nothing && filter!(r -> r != exclude, arc)
-    unpaired = _unpaired_EndpointRefs(arc)
+    unpaired = unpaired_EndpointRefs(arc)
     if !isempty(unpaired)
         throw(ArgumentError(
             "anyon partition ($edge1,$pos1)→($edge2,$pos2) would intersect curves: " *

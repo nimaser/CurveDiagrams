@@ -22,7 +22,7 @@ include("tile/mutators.jl")
 export CurvepieceRef, TileEdgeRef, Lattice
 export num_tiles, get_tile, corresponding_edge, shared_edge
 export num_curves, curve_ids, get_curvediagram, is_deleted
-export sibling_endpoint, curvepieces_on_edge
+export sibling_EndpointRef#, curvepieces_on_edge
 export prev_curvepiece, next_curvepiece, find_curve_position
 export anyon_curve_id, anyon_tiles
 include("lattice/lattice.jl")

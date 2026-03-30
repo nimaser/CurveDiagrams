@@ -37,7 +37,9 @@ extraordinarily memory intensive.
 The `Lattice` constructor accepts `adjacency` and creates the necessary `Tile`s and other internal
 datastructures from it. `adjacency` should use tuples of `tile_id`, `edge` rather than `TileEdgeRef`
 structs, and the conversion is done internally. `edge` should be assigned in clockwise order
-going around each tile starting from 1.
+going around each tile starting from 1. Two tiles sharing multiple edges with each other is unsupported.
+
+Each lattice mutator function in the public API returns an 'action', a ...
 """
 struct Lattice
     _tiles::Vector{Tile}
@@ -109,18 +111,33 @@ can also only start or end on an anyon. This means that any curvepiece endpoint 
 must have a 'sibling' endpoint which lives on the corresponding edge in the adjacent tile. For
 any edge with N endpoints on it, its corresponding edge also has N endpoints.
 
-Given an edge endpoint in `tile_id`, this function returns `(neighbor_tile_id, EndpointRef)` of its
-sibling endpoint. Note that because endpoint positions on edges are assigned clockwise and 1-indexed,
-if an endpoint has position `n` out of `N` total endpoints on an edge, its sibling endpoint has position
-`N - n + 1` on the corresponding edge.
+Given a position `n` of an endpoint on an edge `edge` in `tile_id`, this function returns the
+`(neighbor_tile_id, neighbor_edge, neighbor_pos)` of its sibling endpoint. Because endpoint
+positions on edges are assigned clockwise and 1-indexed, if an endpoint has position `n` out of
+`N` total endpoints on an edge, its sibling endpoint has position `N - n + 1` on the corresponding
+edge.
+
+This function cannot be relied upon when the lattice is in an incorrect state, i.e. when the
+number of endpoints on an edge of one tile is different than the number on its corresponding edge.
+This means that its use in lattice mutation methods must be careful.
 """
-function sibling_endpoint(l::Lattice, tile_id::Int, eref::EndpointRef)
-    ep::EdgeEndpoint = get_endpoint(get_tile(l, tile_id), eref)
-    cedge = corresponding_edge(l, tile_id, ep.edge)
+function sibling_location(l::Lattice, tile_id::Int, edge::Int, n::Int)
+    cedge = corresponding_edge(l, tile_id, edge)
     neighbortile = get_tile(l, cedge.tile_id)
     N = num_endpoints(neighbortile, cedge.edge)
-    sibling_pos = N - ep.pos + 1
-    cedge.tile_id, get_edge_EndpointRef(neighbortile, cedge.edge, sibling_pos)
+    sibling_pos = N - n + 1
+    cedge.tile_id, cedge.edge, sibling_pos
+end
+
+"""
+Given an edge endpoint in `tile_id`, this function returns `(neighbor_tile_id, EndpointRef)` of its
+sibling endpoint, using `sibling_location` internally.
+"""
+function sibling_EndpointRef(l::Lattice, tile_id::Int, eref::EndpointRef)
+    ep::EdgeEndpoint = get_endpoint(get_tile(l, tile_id), eref)
+    neighbor_tile_id, neighbor_edge, neighbor_pos = sibling_location(l, tile_id, ep.edge, ep.pos)
+    neighbortile = get_tile(l, neighbor_tile_id)
+    neighbor_tile_id, get_edge_EndpointRef(neighbortile, neighbor_edge, neighbor_pos)
 end
 
 """Returns a `Vector{EndpointRef}` with an or all curvepieces in `tile_id` with an endpoint on `edge`."""
