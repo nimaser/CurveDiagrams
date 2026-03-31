@@ -219,6 +219,35 @@ function move_endpoint!(t::Tile, eref::EndpointRef, new_edge::Int, new_pos::Int)
     nothing
 end
 
+"""
+Flips the traversal direction of curvepiece `cp_id` in `t` by inverting both endpoints'
+directions. Flipping always results in the endpoints of the curvepiece being stored in
+the opposite order in the curvepiece, requiring updating all `EndpointRef`s for this
+curvepiece accordingly.
+"""
+function flip_direction!(t::Tile, cp_id::Int)
+    # flip endpoint directions
+    cp = get_curvepiece(t, cp_id)
+    flip(ep::EdgeEndpoint)  = EdgeEndpoint(ep.direction == IN ? OUT : IN, ep.edge, ep.pos)
+    flip(ep::AnyonEndpoint) = AnyonEndpoint(ep.direction == IN ? OUT : IN)
+    new_cp = Curvepiece(cp.curve_id, cp.anyon_count, flip(cp.endpoint1), flip(cp.endpoint2))
+    t._curvepieces[cp_id] = new_cp
+    # flip all stored edge endpointrefs
+    for edge_list in t._edge_endpoints
+        for i in eachindex(edge_list)
+            edge_list[i].cp_id == cp_id && (edge_list[i] = get_partner_EndpointRef(edge_list[i]))
+        end
+    end
+    # flip all stored anyon endpointrefs
+    for eref in get_anyon_EndpointRefs(t)
+        if eref.cp_id == cp_id
+            delete!(t._anyon_endpoints, eref)
+            push!(t._anyon_endpoints, get_partner_EndpointRef(eref))
+        end
+    end
+    nothing
+end
+
 """Update the curve-related metadata for a curvepiece after e.g. a merge or grow operation."""
 function set_curvepiece_metadata!(t::Tile, cp_id::Int, curve_id::Int, anyon_count::Int)
     cp = get_curvepiece(t, cp_id)

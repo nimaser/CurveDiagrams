@@ -49,6 +49,161 @@ function create_pair!(l::Lattice, tile_id1::Int, tile_id2::Int, pos::Int=1)
 end
 
 """
+Swap two sequential anyons on the same curve diagram which are in neighboring tiles. The
+anyons must be 'directly connected', meaning that between them are exactly two edge-to-anyon
+curvepieces, one in `tile_id1` and one in `tile_id2`, which connect to each other at the
+shared edge. The value of `dir` indicates whether the new curve diagram should be a (+1)
+'counterclockwise' or (-1) 'clockwise' swap.
+
+The swap can be visualized as first identifying the two curvepieces which directly connect
+the two anyons and reversing their directions, then disconnecting the other (up to) two
+curvepieces which connect those anyons to the rest of the curvediagram from the anyons.
+Then stretch the disconnected ends either clockwise or counterclockwise around the two
+anyons to connect to the anyon they were not connected to originally. This will require
+stretching them across the shared edge between the tiles, and thus each single edge-to-anyon
+curvepiece will become an edge-to-edge curvepiece chained to an edge-to-anyon curvepiece.
+
+Preconditions:
+- `tile_id1` and `tile_id2` share exactly one edge
+- both tiles have anyons on the same curve diagram
+- no other anyon lies between them along the curve
+- `dir` is `+1` or `-1`
+
+Returns `action = [3, curve_id, seg, dir]`, where `seg` is the segment index between the
+two anyons before the swap.
+"""
+function swap!(l::Lattice, tile_id1::Int, tile_id2::Int, dir::Int)
+    # # validation
+    # t1 = get_tile(l, tile_id1)
+    # t2 = get_tile(l, tile_id2)
+    # shared = shared_edge(l, tile_id1, tile_id2)
+    # shared != nothing || throw(ArgumentError("tiles $tile_id1 and $tile_id2 do not share an edge"))
+    # e1, e2 = shared
+    # cid1 = anyon_curve_id(t1)
+    # cid2 = anyon_curve_id(t2)
+    # cid1 != nothing || throw(ArgumentError("tile $tile_id1's anyon not on a curve diagram"))
+    # cid2 != nothing || throw(ArgumentError("tile $tile_id2's anyon not on a curve diagram"))
+    # cid1 == cid2 || throw(ArgumentError("tile $tile_id1 and $tile_id2's anyons on differing curve diagrams $cid1 and $cid2"))
+    # curve_id = cid1
+    # p_anyon_tile = prev_anyon(l, tile_id1)
+    # n_anyon_tile = next_anyon(l, tile_id1)
+    # p_anyon_tile == tile_id2 || n_anyon_tile == tile_id2 ||
+    #     throw(ArgumentError("tile $tile_id1 and $tile_id2's anyons not sequential on their curve diagram"))
+    # # reorder so tile_id1's anyon comes before tile_id2's in the diagram
+    # if p_anyon_tile == tile_id2
+    #     tile_id1, tile_id2 = tile_id2, tile_id1
+    #     t1, t2 = t2, t1
+    #     e1, e2 = e2, e1
+    # end
+    # # identify the two curvepieces that go between the two anyons
+    # cp_ids1 = get_anyon_cp_ids(t1)
+    # cp_ids2 = get_anyon_cp_ids(t2)
+    # cp1 = cp_ids1[argmax(cp_id -> get_curvepiece(t1, cp_id).anyon_count, cp_ids1)]
+    # cp2 = cp_ids2[argmin(cp_id -> get_curvepiece(t2, cp_id).anyon_count, cp_ids2)]
+    # anyon_count = get_curvepiece(t1, cp1).anyon_count
+    # # check that the two curvepieces are siblings
+    # cp1_edge_eref = get_partner_EndpointRef(get_anyon_EndpointRef(t1, cp1))
+    # _, sib_eref = sibling_EndpointRef(l, tile_id1, cp1_edge_eref)
+    # sib_eref.cp_id == cp2 || throw(ArgumentError("tiles $tile_id1 and $tile_id2 anyons are not directly connected"))
+    # # get the other edge-to-anyon in each tile which doesn't connect the two anyons
+    # cp1_other = get_partner_cp_id(t1, cp1)  # nothing if cp1 is the only anyon cp in t1
+    # cp2_other = get_partner_cp_id(t2, cp2)  # nothing if cp2 is the only anyon cp in t2
+    # # flip the direction of the connecting segment
+    # flip_direction!(t1, cp1)
+    # flip_direction!(t2, cp2)
+    # # remove the nonconnecting edge-to-anyon curvepieces in the tiles, saving their edge endpoints first
+    # if cp1_other !== nothing
+    #     cp1_other_edge_eref = get_partner_EndpointRef(get_anyon_EndpointRef(t1, cp1_other))
+    #     cp1_other_ep = get_endpoint(t1, cp1_other_edge_eref)::EdgeEndpoint
+    #     remove_curvepiece!(t1, cp1_other)
+    # end
+    # if cp2_other !== nothing
+    #     cp2_other_edge_eref = get_partner_EndpointRef(get_anyon_EndpointRef(t2, cp2_other))
+    #     cp2_other_ep = get_endpoint(t2, cp2_other_edge_eref)::EdgeEndpoint
+    #     remove_curvepiece!(t2, cp2_other)
+    # end
+    # # get positions of connecting curvepieces and edge-to-edge curvepiece insertion points
+    # p1 = (get_endpoint(t1, get_partner_EndpointRef(get_anyon_EndpointRef(t1, cp1)))::EdgeEndpoint).pos
+    # p2 = (get_endpoint(t2, get_partner_EndpointRef(get_anyon_EndpointRef(t2, cp2)))::EdgeEndpoint).pos
+    # e1_insert_ee = p1 + (dir == 1 ? 1 : 0)
+    # e2_insert_ee = p2 + (dir == 1 ? 1 : 0)
+    # _, _, e2_insert_ae = sibling_location(t1, e1, e1_insert_ee)
+    # _, _, e1_insert_ae = sibling_location(t2, e2, e2_insert_ee)
+    # # insert edge-to-edge curvepieces to replace removed curvepieces, with endpoints either clockwise
+    # # or counterclockwise of the edge endpoint of cp1/2 depending on dir
+    # new_cp1_other = nothing
+    # new_cp2_other = nothing
+    # if cp1_other !== nothing
+    #     new_cp1_other = insert_curvepiece!(t1, curve_id, anyon_count - 1,
+    #         cp1_other_ep.edge, cp1_other_ep.pos, e1, e1_insert_ee)
+    # end
+    # if cp2_other !== nothing
+    #     new_cp2_other = insert_curvepiece!(t2, curve_id, anyon_count + 1,
+    #         e2, e2_insert_ee, cp2_other_ep.edge, cp2_other_ep.pos)
+    # end
+    # insert edge-to-anyon curvepieces to connect the edge-to-edge curvepieces just added
+    # in each tile to the anyon in the other tile
+    # claude TODO
+
+    # --- Edge positions ---
+    # p1 = position of connectingline1's edge endpoint on e1
+    # p2 = sibling_location(l, tile_id1, e1, p1).pos  (= N_e1 - p1 + 1)
+    # s1 = direction of connectingline1's edge endpoint on e1 (should be OUT)
+
+    # --- Step 1: flip direction of the connecting segment on both sides ---
+    # connectingline1's edge endpoint: direction flips (OUT → IN or IN → OUT)
+    # connectingline2's edge endpoint: direction flips (opposite of connectingline1's flip)
+    # In Julia this requires removing and re-inserting both cps with flipped edge directions.
+
+    # --- Step 2: handle a1 (the other anyon cp in t1), if present ---
+    # a1_cp is currently anyon-to-ek in t1 (some edge ek ≠ e1).
+    # It gets detached from t1's anyon and re-routed so its edge-side now crosses e1 too.
+    # A new anyon-to-e2 cp (newlabel_2) is created in t2.
+    #
+    # Concretely:
+    #   ek_ep = a1_cp's EdgeEndpoint (on edge ek, position ek_pos)
+    #   remove a1_cp from t1 (removes both the anyon endpoint and ek edge endpoint)
+    #   re-insert a1_cp as edge-to-edge in t1: (ek, ek_pos) ↔ (e1, new_e1_pos)
+    #     dir == +1 (CCW): new_e1_pos = p1 + 1   (a1 passes UNDER connectingline1)
+    #     dir == -1 (CW):  new_e1_pos = p1        (a1 passes OVER, then p1 increments to p1+1)
+    #   insert newlabel_2_cp in t2 as anyon-to-e2:
+    #     dir == +1 (CCW): e2 position = p2        (before connectingline2, before sign flip)
+    #     dir == -1 (CW):  e2 position = p2 + 1   (after connectingline2)
+    #   newlabel_2_cp gets anyon_count = seg - 1
+    #   t2's anyon list becomes [newlabel_2_cp, connectingline2_cp]
+    #   (if a1 absent: t2's anyon list = just connectingline2_cp)
+
+    # --- Step 3: handle a2 (the other anyon cp in t2), if present ---
+    # Symmetric to step 2: a2_cp detaches from t2's anyon, re-routed to also cross e2.
+    # A new anyon-to-e1 cp (newlabel_1) is created in t1.
+    #
+    #   ek2_ep = a2_cp's EdgeEndpoint (on edge ek2, position ek2_pos)
+    #   remove a2_cp from t2
+    #   re-insert a2_cp as edge-to-edge in t2: (ek2, ek2_pos) ↔ (e2, new_e2_pos)
+    #     dir == +1 (CCW): new_e2_pos = p2 + 1  (after connectingline2; p2 may have shifted)
+    #     dir == -1 (CW):  new_e2_pos = p2 - 1  (before connectingline2; p2 may have shifted)
+    #   insert newlabel_1_cp in t1 as anyon-to-e1:
+    #     dir == +1 (CCW): e1 position = p1 - 1  (before connectingline1; p1 may have shifted)
+    #     dir == -1 (CW):  e1 position = p1 + 1  (after connectingline1)
+    #   newlabel_1_cp gets anyon_count = seg + 1
+    #   t1's anyon list becomes [connectingline1_cp, newlabel_1_cp]
+    #   (if a2 absent: t1's anyon list = just connectingline1_cp)
+
+    # --- Step 4: update the curve diagram ---
+    # The path segment [i1 .. i2] is replaced (same for BOTH dir values):
+    #   [ (tile_id1, a1_cp),         if a1 present
+    #     (tile_id2, newlabel_2_cp), if a1 present
+    #     (tile_id2, connectingline2_cp),
+    #     (tile_id1, connectingline1_cp),
+    #     (tile_id1, newlabel_1_cp), if a2 present
+    #     (tile_id2, a2_cp) ]        if a2 present
+    # The dir difference is purely in the edge positions (steps 2-3), not the path order.
+    # In Julia: remove CurvepieceRefs at positions i1..i2, insert the above list at i1.
+
+    # return [3, curve_id, seg, dir]
+end
+
+"""
 'Bends' curvepiece `cp_id` in `tile_id1` into neighboring `tile_id2`, with the piece in the
 second tile making a U-turn shape. Let `e` be the edge shared between `tile_id1` and
 `tile_id2`. There are two cases:
@@ -71,154 +226,121 @@ both will not cause crossing, but if there is another such curvepiece, only one 
 which is correct depends on whether you encounter `cp_id`'s edge endpoint or the other edge-to-anyon
 curvepiece's edge endpoint first when traversing clockwise from edge `e`.
 
-In all cases, an error is thrown if the operation would lead to intersecting curvepieces. To
-detect intersections, first call one edge endpoint of `cp_id` (or its only edge endpoint in case
-2) Z. Collect all curvepieces which have one endpoint between Z and `e`, but not on `e`. If any
-of those curvepieces have their other endpoint between Z and `e` going around 'the other way',
-the stretch will cause an intersection.
+In all cases, an error is thrown if the operation would lead to intersecting curvepieces.
 
 Preconditions:
 - `tile_id1` and `tile_id2` share exactly one edge
+- `cp_id` does not have any endpoints on the shared edge
 
 Returns `(cp1, cp2, cp3)` so the caller can update the curve diagram (replacing `cp_id` with
 `cp1`, `cp3`, `cp2` in traversal order).
 
 Implementation:
-1. a. First, if either endpoint of `cp_id` is on `e`, we do not need to do the intersection check.
-Call one such endpoint `ep`, at position `p` on edge `e`. We directly add `cp1` at positions
-`p+1` and `p+2`, then remove `cp_id` so that `cp1` 'slides into place' to align with the sibling
-of `ep` in tile 2. We then add `cp2`'s `e` endpoint right after the endpoint inserted at position
-`p+2` (and now at position `p+1`), and its other endpoint is wherever `cp_id`s other endpoint was.
-Finally, we add `cp3` to connect `cp1` and `cp2`. Depending on the direction of `cp_id`, we have
-to be careful to insert the curvepiece endpoints in the correct order so the resulting sequence
-of curvepieces has the right direction overall. There is also some hairy index math due to the
-'coordinate systems' of the edges in t1 and t2 becoming temporarily 'out of sync'.
 
-   b. If neither endpoint is on `e`, we first do the intersection check mentioned above, then need to
-find the insertion point for the endpoints on `e`. This is accomplished by walking from whichever
-endpoint of `cp_id` is immediately counterclockwise of `e` to and onto `e` in the clockwise
-direction. While walking, we keep a set of `cp_id`s: if we encounter an endpoint whose `cp_id` is
-new, we add it to the set, while if its already in the set, we remove it from the set. This means
-that we only have unpaired `cp_id`s in the set: once we reach positions on `e`, if we ever have
-an empty set, it means there are no curvepieces going 'over our heads' and blocking the path from
-the original `cp_id` to the edge, and thus this is the insertion point.
-
-2.
 """
 function stretch!(l::Lattice, tile_id1::Int, cp_id::Int, tile_id2::Int)
-    t1 = get_tile(l, tile_id1)
-    t2 = get_tile(l, tile_id2)
-    e1, e2 = shared_edge(l, tile_id1, tile_id2)
-    cp = get_curvepiece(t1, cp_id)
-    curve_id = cp.curve_id
-    anyon_count = cp.anyon_count
+    # t1 = get_tile(l, tile_id1)
+    # t2 = get_tile(l, tile_id2)
+    # e1, e2 = shared_edge(l, tile_id1, tile_id2)
+    # cp = get_curvepiece(t1, cp_id)
+    # curve_id = cp.curve_id
+    # anyon_count = cp.anyon_count
 
-    if !is_anyon_curvepiece(t1, cp_id)
-        # case 1: edge-to-edge
-        ep1 = cp.endpoint1::EdgeEndpoint  # IN endpoint
-        ep2 = cp.endpoint2::EdgeEndpoint  # OUT endpoint
+    # if !is_anyon_curvepiece(t1, cp_id)
+    #     # case 1: edge-to-edge
+    #     ep1 = cp.endpoint1::EdgeEndpoint  # IN endpoint
+    #     ep2 = cp.endpoint2::EdgeEndpoint  # OUT endpoint
+    #     # check that neither endpoint is on e1
+    #     ep1.endpoint != e1 && ep2.endpoint != e1 || throw(ArgumentError("endpoint cannot be on shared edge"))
+    #     # determine which endpoint is directly counterclockwise of e1
+    #     ordered = order_EndpointRefs(t1, Set([EndpointRef(cp_id, 1), EndpointRef(cp_id, 2)]), e1, 1)
+    #     ccw_eref = ordered[end]
+    #     ccw_ep = get_endpoint(t1, ccw_eref)::EdgeEndpoint
+    #     # walk clockwise from ccw endpoint onto e1, maintaining set of unpaired erefs
+    #     unpaired_erefs = Set{EndpointRef}()
+    #     insert_pos = nothing
+    #     for eref in EndpointRefs_between(t1, ccw_ep.edge, ccw_ep.pos, e1, num_endpoints(t1,e1)+1)
+    #         ep = get_endpoint(t1, eref)::EdgeEndpoint
+    #         if ep.edge == e1 && isempty(unpaired_erefs)
+    #             insert_pos = ep.pos
+    #             break
+    #         elseif eref ∈ unpaired_erefs
+    #             delete!(unpaired_erefs, eref)
+    #         else
+    #             partner = get_connected_edge_EndpointRef(t1, eref)
+    #             partner !== nothing && push!(unpaired_erefs, partner)
+    #         end
+    #     end
+    #     # tail case where on the last iteration we empty the set
+    #     if insert_pos === nothing && isempty(unpaired_erefs)
+    #         insert_pos = num_endpoints(t1, e1) + 1
+    #     end
+    #     insert_pos === nothing && throw(ArgumentError("stretch! could not find insertion point on e1"))
+    #     # insertion
+    #     _, _, sibling_pos = sibling_location(l, tile_id1, e1, insert_pos)
+    #     remove_curvepiece!(t1, cp_id)
+    #     cp1 = insert_curvepiece!(t1, curve_id, anyon_count, ep1.edge, ep1.pos, e1, insert_pos)
+    #     if ccw_ep == ep1
+    #         # the other e1 endpoint should be more clockwise
+    #         cp2 = insert_curvepiece!(t1, curve_id, anyon_count, e1, insert_pos + 1, ep2.edge, ep2.pos)
+    #         cp3 = insert_curvepiece!(t2, curve_id, anyon_count, e2, sibling_pos + 1, e2, sibling_pos + 1)
+    #     else
+    #         # the other e1 endpoint should be more counterclockwise
+    #         cp2 = insert_curvepiece!(t1, curve_id, anyon_count, e1, insert_pos - 1, ep2.edge, ep2.pos)
+    #         cp3 = insert_curvepiece!(t2, curve_id, anyon_count, e2, sibling_pos + 1, e2, sibling_pos + 2)
+    #     end
+    # else
+    #     # # case 2: edge-to-anyon
+    #     # anyon_eref = get_anyon_EndpointRef(t1, cp_id)
+    #     # edge_eref  = get_partner_EndpointRef(anyon_eref)
+    #     # edge_ep    = get_endpoint(t1, edge_eref)::EdgeEndpoint
 
-        # if either endpoint is on the edge, we do not need to do an intersection check
-        if ep1.edge == e1 || ep2.edge == e1
-            ep_on_e1, ep_other = ep1.edge == e1 ? (ep1, ep2) : (ep2, ep1)
-            p = ep_on_e1.pos
-            _, _, sibling_p = sibling_location(l, tile_id1, e1, p)
+    #     # # Sweep clockwise from e1 to find which sub-case we are in.
+    #     # # If we encounter edge_ep before the other anyon curvepiece (or there is no other), sub-case a.
+    #     # # If we encounter the other anyon curvepiece first, sub-case b.
+    #     # other_anyon_cp = get_partner_cp_id(t1, cp_id)  # nothing if only one anyon cp
+    #     # subcase_b = false
+    #     # if other_anyon_cp !== nothing
+    #     #     other_anyon_eref = get_anyon_EndpointRef(t1, other_anyon_cp)
+    #     #     other_edge_eref  = get_partner_EndpointRef(other_anyon_eref)
+    #     #     other_edge_ep    = get_endpoint(t1, other_edge_eref)::EdgeEndpoint
+    #     #     # check which comes first in clockwise sweep from e1
+    #     #     arc_to_edge  = _EndpointRefs_between(t1, e1, num_endpoints(t1, e1) + 1, edge_ep.edge, edge_ep.pos)
+    #     #     arc_to_other = _EndpointRefs_between(t1, e1, num_endpoints(t1, e1) + 1, other_edge_ep.edge, other_edge_ep.pos)
+    #     #     subcase_b = length(arc_to_other) < length(arc_to_edge)
+    #     # end
 
-            # add cp1 and cp2 and remove cp_id, in t1, then add cp3 in t2
-            if ep_on_e1.direction == IN
-                # curve ENTERS t1 at ep_on_e1
-                # insert cp1's endpoints just after it, at positions p+1 and p+2, then delete cp_id,
-                # shifting cp1's endpoints down so that the first IN endpoint is where ep_on_e1 was
-                cp1 = insert_curvepiece!(t1, curve_id, anyon_count, e1, p + 1, e1, p + 2)
-                remove_curvepiece!(t1, cp_id)
-                # then insert cp2's IN endpoint at position p+2, right above cp1's OUT endpoint, and
-                # put its OUT endpoint where cp_id's other endpoint was
-                cp2 = insert_curvepiece!(t1, curve_id, anyon_count, e1, p + 2, ep_other.edge, ep_other.pos)
-                # insert cp3 to connect cp1 to cp2
-                cp3 = insert_curvepiece!(t2, curve_id, anyon_count, e2, sibling_p, e2, sibling_p)
-            else
-                # curve EXITS t1 at ep_on_e1
-                # insert cp1's endpoints just after t1, at positions p+2 and p+1, analogously
-                cp1 = insert_curvepiece!(t1, curve_id, anyon_count, e1, p + 1, e1, p + 1)
-                remove_curvepiece!(t1, cp_id)
-                cp2 = insert_curvepiece!(t1, curve_id, anyon_count, ep_other.edge, ep_other.pos, e1, p + 2)
-                # insert cp3 to conect cp2 to cp1
-                cp3 = insert_curvepiece!(t2, curve_id, anyon_count, e2, sibling_p, e2, sibling_p + 1)
-            end
-            return cp1, cp2, cp3
+    #     # N_e1 = num_endpoints(t1, e1)
 
-        else
-            # arbitrarily chose ep2 to be Z, and check for intersection
-            # sweep clockwise from just after Z to just before pos 1 on e1 (excludes z and all e1 endpts)
-            sweep1 = filter(r -> r.cp_id != cp_id,
-                _EndpointRefs_between(t1, ep2.edge, ep2.pos + 1, e1, 1))
-            # sweep clockwise from just past the last pos on e1 back to Z (excludes all e1 endpts and Z)
-            N_e1 = num_endpoints(t1, e1)
-            sweep2 = filter(r -> r.cp_id != cp_id,
-                _EndpointRefs_between(t1, e1, N_e1 + 1, ep2.edge, ep2.pos))
-            # a cp_id in both sweeps has one endpoint in each arc -> 'blocks' edge -> intersection
-            ids1 = Set(r.cp_id for r in sweep1)
-            ids2 = Set(r.cp_id for r in sweep2)
-            isempty(ids1 ∩ ids2) || throw(ArgumentError(
-                "stretch! of cp $cp_id in tile $tile_id1 toward $tile_id2 would cause intersecting curvepieces"))
+    #     # if !subcase_b
+    #     #     # Sub-case a: edge endpoint is on far side.
+    #     #     # cp1 (edge-to-edge): inherits edge_ep, new endpoint on e1
+    #     #     # cp2 (edge-to-anyon): inherits anyon endpoint, new endpoint on e1
+    #     #     arc = _EndpointRefs_between(t1, edge_ep.edge, edge_ep.pos + 1, e1, N_e1 + 1)
+    #     #     num = length(arc)
+    #     #     x = N_e1 - num
+    #     #     y = num
 
-            # insert for the no-endpoint-on-e1 case
+    #     #     remove_curvepiece!(t1, cp_id)
 
-        end
+    #     #     cp1 = insert_curvepiece!(t1, curve_id, anyon_count, edge_ep.edge, edge_ep.pos, e1, x + 1)
+    #     #     cp2 = insert_curvepiece!(t1, curve_id, anyon_count, e1, x + 2, edge_ep.direction)
+    #     #     cp3 = insert_curvepiece!(t2, curve_id, anyon_count, e2, y + 1, e2, y + 2)
+    #     # else
+    #     #     # Sub-case b: edge endpoint is on near side (just before e1).
+    #     #     # cp1 (edge-to-edge): inherits edge_ep, new endpoint on e1
+    #     #     # cp2 (edge-to-anyon): inherits anyon endpoint, new endpoint on e1
+    #     #     # The positions on e1 are ordered differently.
+    #     #     x = findfirst(r -> r == edge_eref, t1._edge_endpoints[edge_ep.edge]) # pos of other anyon edge ep on e1? first approx
+    #     #     y = N_e1 + 1 - x
+    #     #     remove_curvepiece!(t1, cp_id)
 
-    else
-        # Case 2: edge-to-anyon
-        anyon_eref = get_anyon_EndpointRef(t1, cp_id)
-        edge_eref  = get_partner_EndpointRef(anyon_eref)
-        edge_ep    = get_endpoint(t1, edge_eref)::EdgeEndpoint
-
-        # Sweep clockwise from e1 to find which sub-case we are in.
-        # If we encounter edge_ep before the other anyon curvepiece (or there is no other), sub-case a.
-        # If we encounter the other anyon curvepiece first, sub-case b.
-        other_anyon_cp = get_partner_cp_id(t1, cp_id)  # nothing if only one anyon cp
-        subcase_b = false
-        if other_anyon_cp !== nothing
-            other_anyon_eref = get_anyon_EndpointRef(t1, other_anyon_cp)
-            other_edge_eref  = get_partner_EndpointRef(other_anyon_eref)
-            other_edge_ep    = get_endpoint(t1, other_edge_eref)::EdgeEndpoint
-            # check which comes first in clockwise sweep from e1
-            arc_to_edge  = _EndpointRefs_between(t1, e1, num_endpoints(t1, e1) + 1, edge_ep.edge, edge_ep.pos)
-            arc_to_other = _EndpointRefs_between(t1, e1, num_endpoints(t1, e1) + 1, other_edge_ep.edge, other_edge_ep.pos)
-            subcase_b = length(arc_to_other) < length(arc_to_edge)
-        end
-
-        N_e1 = num_endpoints(t1, e1)
-
-        if !subcase_b
-            # Sub-case a: edge endpoint is on far side.
-            # cp1 (edge-to-edge): inherits edge_ep, new endpoint on e1
-            # cp2 (edge-to-anyon): inherits anyon endpoint, new endpoint on e1
-            arc = _EndpointRefs_between(t1, edge_ep.edge, edge_ep.pos + 1, e1, N_e1 + 1)
-            num = length(arc)
-            x = N_e1 - num
-            y = num
-
-            remove_curvepiece!(t1, cp_id)
-
-            cp1 = insert_curvepiece!(t1, curve_id, anyon_count, edge_ep.edge, edge_ep.pos, e1, x + 1)
-            cp2 = insert_curvepiece!(t1, curve_id, anyon_count, e1, x + 2, edge_ep.direction)
-            cp3 = insert_curvepiece!(t2, curve_id, anyon_count, e2, y + 1, e2, y + 2)
-        else
-            # Sub-case b: edge endpoint is on near side (just before e1).
-            # cp1 (edge-to-edge): inherits edge_ep, new endpoint on e1
-            # cp2 (edge-to-anyon): inherits anyon endpoint, new endpoint on e1
-            # The positions on e1 are ordered differently.
-            x = findfirst(r -> r == edge_eref, t1._edge_endpoints[edge_ep.edge]) # pos of other anyon edge ep on e1? first approx
-            y = N_e1 + 1 - x
-            remove_curvepiece!(t1, cp_id)
-
-            cp2 = insert_curvepiece!(t1, curve_id, anyon_count, e1, x, edge_ep.direction)
-            cp1 = insert_curvepiece!(t1, curve_id, anyon_count, edge_ep.edge, edge_ep.pos, e1, x + 1)
-            cp3 = insert_curvepiece!(t2, curve_id, anyon_count, e2, y, e2, y + 1)
-        end
-
-        return cp1, cp2, cp3
-    end
+    #     #     cp2 = insert_curvepiece!(t1, curve_id, anyon_count, e1, x, edge_ep.direction)
+    #     #     cp1 = insert_curvepiece!(t1, curve_id, anyon_count, edge_ep.edge, edge_ep.pos, e1, x + 1)
+    #     #     cp3 = insert_curvepiece!(t2, curve_id, anyon_count, e2, y, e2, y + 1)
+    #     end
+    # end
+    # cp1, cp2, cp3
 end
 
 """
@@ -237,28 +359,125 @@ Returns `action = [1, curve_id, pos, tile_id2]`, where `pos` is the 1-based inde
 new anyon in the curve.
 """
 function grow!(l::Lattice, tile_id1::Int, tile_id2::Int, place::Int)
-    # TODO
+    # --- Validation ---
+    # anyon_curve_id(l, tile_id2) !== nothing → error (t2 already has anyon)
+    # anyon_curve_id(l, tile_id1) === nothing → error (t1 has no anyon)
+    # place ∉ {-1,+1} → error
+
+    # t1 = get_tile(l, tile_id1)
+    # t2 = get_tile(l, tile_id2)
+    # e1, e2 = shared_edge(l, tile_id1, tile_id2)
+
+    # --- Step 1: clear shielding curvepieces ---
+    # A curvepiece shields the anyon from e1 if it appears in the unpaired set of BOTH
+    # the CW walk (e1 → anyon) and the CCW walk (e1 → anyon). Stretch each shielding
+    # piece (outermost first) until none remain.
+    # NOTE: makelist / shielding detection (two-directional walk + intersection) does not
+    # yet have a Julia equivalent and needs to be implemented.
+    # while any curvepiece in t1 shields the anyon from e1:
+    #     stretch!(l, tile_id1, outermost_shielding_cp_id, tile_id2)
+
+    # --- Identify a_cp: the relevant anyon curvepiece in t1 ---
+    # place==+1 → the one with the highest anyon_count (last in traversal through the anyon)
+    # place==-1 → the one with the lowest anyon_count (first in traversal through the anyon)
+    # a_cp_id  = anyon cp in t1 with (place==+1 ? max : min) anyon_count
+    # a_cp     = get_curvepiece(t1, a_cp_id)
+    # curve_id = a_cp.curve_id
+    # seg      = a_cp.anyon_count
+
+    # --- Determine whether the curve has a segment on the 'place' side of a_cp ---
+    # neighbor = (place == +1) ? next_curvepiece(l, tile_id1, a_cp_id)
+    #                           : prev_curvepiece(l, tile_id1, a_cp_id)
+    # neighbor = (neighbor_tile_id, neighbor_cp_id), or nothing if a_cp is a terminus
+    # i1 = find_curve_position(l, curve_id, tile_id1, a_cp_id)
+
+    # if neighbor !== nothing:
+    #     neighbor_tile_id, neighbor_cp_id = neighbor
+    #
+    #     if neighbor_tile_id == tile_id2:
+    #         # --- Case A1: the adjacent segment already crosses into t2 ---
+    #         #
+    #         # neighbor_cp (call it b) is an edge-to-edge curvepiece in t2 with one
+    #         # endpoint on e2 (sibling of a_cp's edge endpoint). We split it at t2's
+    #         # new anyon:
+    #         #   b becomes:    EdgeEndpoint(other_edge) ↔ AnyonEndpoint
+    #         #   new_cp gets:  EdgeEndpoint(e2, same pos) ↔ AnyonEndpoint
+    #         #
+    #         # Concretely:
+    #         #   b_ep_e2     = the EdgeEndpoint of b on e2
+    #         #   b_ep_other  = the other EdgeEndpoint of b (on some non-e2 edge)
+    #         #   remove b from t2
+    #         #   b_new    = insert_curvepiece!(t2, curve_id, seg,
+    #         #                  b_ep_other.edge, b_ep_other.pos, ANYON)
+    #         #   new_cp   = insert_curvepiece!(t2, curve_id, seg,
+    #         #                  e2, <position on e2 matching b's old e2 endpoint>, ANYON)
+    #         #   NOTE: anyon_count for b_new vs new_cp: both initially get seg; their
+    #         #   order in t2's anyon list distinguishes them; _shift_anyon_count! at the
+    #         #   end handles final renumbering.
+    #         #   NOTE: position arithmetic on e2 after removing b needs careful handling
+    #         #   (as in stretch!).
+    #         #
+    #         # Update curve diagram:
+    #         #   replace CurvepieceRef(tile_id2, b_cp_id) with CurvepieceRef(tile_id2, b_new_id)
+    #         #   insert  CurvepieceRef(tile_id2, new_cp_id) at position:
+    #         #     place==+1 → i1+1   (new anyon is after a in the path)
+    #         #     place==-1 → i1     (new anyon is before a in the path)
+    #
+    #     else:
+    #         # --- Case A2: adjacent segment does NOT go to t2 ---
+    #         #
+    #         # Stretch a_cp into t2, creating a U-turn loop in t2 on e2.
+    #         # cp1, cp2, cp3 = stretch!(l, tile_id1, a_cp_id, tile_id2)
+    #         # cp3 is now an edge-to-edge loop in t2 (both endpoints on e2).
+    #         # Split cp3 at the new anyon in t2, exactly as in case A1:
+    #         #   cp3_in_ep  = the IN endpoint of cp3 on e2
+    #         #   cp3_out_ep = the OUT endpoint of cp3 on e2
+    #         #   remove cp3 from t2
+    #         #   cp3a = insert_curvepiece!(t2, curve_id, seg, e2, cp3_in_ep.pos, ANYON)
+    #         #   cp3b = insert_curvepiece!(t2, curve_id, seg, e2, cp3_out_ep.pos, ANYON)
+    #         #   NOTE: position arithmetic on e2 after removing cp3 needs careful handling.
+    #         #
+    #         # Update curve diagram:
+    #         #   replace CurvepieceRef(tile_id2, cp3) with CurvepieceRef(tile_id2, cp3a)
+    #         #   insert  CurvepieceRef(tile_id2, cp3b) adjacent to it
+    #         #   (ordering of cp3a vs cp3b in the diagram depends on place)
+    #
+    # else:
+    #     # --- Case B: a_cp is at the terminus of the curve in the 'place' direction ---
+    #     # No adjacent segment exists; must create entirely new curvepieces.
+    #     #
+    #     # Find insertion position on e1: walk CW from a_cp's edge endpoint around t1
+    #     # to e1, counting unpaired erefs (same algorithm as in stretch!'s else branch).
+    #     # NOTE: find_insertion_position_on_e1 could be extracted from stretch! into a
+    #     # shared helper.
+    #     # insert_pos = find_insertion_position_on_e1(t1, a_cp_id, e1)
+    #     # _, _, sibling_pos = sibling_location(l, tile_id1, e1, insert_pos)
+    #     #
+    #     # direction = (place == +1) ? OUT : IN
+    #     #   place==+1 → OUT on e1 (curve exits t1 after the anyon, heading to t2)
+    #     #   place==-1 → IN  on e1 (curve enters t1 before the anyon, coming from t2)
+    #     #
+    #     # new_cp_t1 = insert_curvepiece!(t1, curve_id, seg, e1, insert_pos, direction)
+    #     # new_cp_t2 = insert_curvepiece!(t2, curve_id, seg, e2, sibling_pos+1, opposite(direction))
+    #     #
+    #     # Extend the curve diagram at the terminus:
+    #     # if place == +1:
+    #     #     append CurvepieceRef(tile_id1, new_cp_t1) to diagram
+    #     #     append CurvepieceRef(tile_id2, new_cp_t2) to diagram
+    #     # else: # place == -1
+    #     #     prepend CurvepieceRef(tile_id2, new_cp_t2) to diagram
+    #     #     prepend CurvepieceRef(tile_id1, new_cp_t1) to diagram
+
+    # --- Step 4: update anyon_count ---
+    # From t2's new anyon cp onward in the curve, increment anyon_count by +1.
+    # Equivalent to MATLAB's "update segment numbers" loop from istart to end.
+    # new_t2_pos_in_diagram = position of t2's new anyon cp in curve diagram
+    # _shift_anyon_count!(l, curve_id, new_t2_pos_in_diagram + 1, +1)
+
+    # return [1, curve_id, seg + 1, tile_id2]
 end
 
-"""
-Elementary braid swap of two directly-adjacent anyons on the same curve in neighboring tiles.
-`dir=+1` is counterclockwise (CCW); `dir=-1` is clockwise (CW).
 
-The two anyons must be directly connected — no other anyons may lie between them on the curve.
-This corresponds to applying a braid group generator sigma_i or its inverse.
-
-Preconditions:
-- `tile_id1` and `tile_id2` share exactly one edge.
-- Both tiles have anyons on the same curve diagram.
-- No other anyon lies between them along the curve.
-- `dir` is `+1` or `-1`.
-
-Returns `action = [3, curve_id, seg, dir]`, where `seg` is the segment index between the
-two anyons before the swap.
-"""
-function swap!(l::Lattice, tile_id1::Int, tile_id2::Int, dir::Int)
-    # TODO
-end
 
 """
 Removes all U-turns and trivial bends from all curve diagrams, running to fixed point.

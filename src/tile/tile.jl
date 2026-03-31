@@ -111,6 +111,26 @@ has_anyon_partner(t::Tile, eref::EndpointRef) =
     get_endpoint(t, get_partner_EndpointRef(eref)) isa AnyonEndpoint
 
 """
+Return the `EndpointRef` for the other edge endpoint connected with `eref`, or `nothing` if
+`eref` belongs to an anyon-to-edge curvepiece with no partner anyon curvepiece on the tile.
+
+By connected endpoint we mean that the endpoint you can get to by starting from `eref` and
+traversing its curvediagram to either
+1. the edge of the tile
+2. the anyon, and from there another curvepiece to the edge of the tile
+
+Throws an error if `eref` does not reference an `EdgeEndpoint`.
+"""
+function get_connected_edge_EndpointRef(t::Tile, eref::EndpointRef)
+    get_endpoint(t, eref)::EdgeEndpoint
+    has_edge_partner(t, eref) && return get_partner_EndpointRef(eref)
+    partner_cp_id = get_partner_cp_id(t, eref.cp_id)
+    partner_cp_id === nothing && return nothing
+    anyon_eref = get_anyon_EndpointRef(t, partner_cp_id)
+    get_partner_EndpointRef(anyon_eref)
+end
+
+"""
 If `cp_id`'s curvepiece has an endpoint at `t`'s anyon, returns the EndpointRef for that endpoint.
 Otherwise, returns `nothing`.
 """

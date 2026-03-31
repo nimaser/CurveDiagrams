@@ -119,7 +119,13 @@ edge.
 
 This function cannot be relied upon when the lattice is in an incorrect state, i.e. when the
 number of endpoints on an edge of one tile is different than the number on its corresponding edge.
-This means that its use in lattice mutation methods must be careful.
+This means that its use near tile mutation methods such as `insert_curvepiece!` must be cautious.
+
+Similarly, note that using this function to get an insertion position will lead to wrong behavior
+if used naively: getting the sibling location in tile t2 of (edge, pos) in tile t1, then inserting
+at t1, edge, pos and t2, sibling_edge, sibling_pos, will not lead to aligned curvepieces. This is
+because insertions on either side shift everything clockwise locally which are opposite directions
+on either side of the edge. SO the sibling insertion must be done at sibling_pos + 1.
 """
 function sibling_location(l::Lattice, tile_id::Int, edge::Int, n::Int)
     cedge = corresponding_edge(l, tile_id, edge)
@@ -168,7 +174,7 @@ function prev_curvepiece(l::Lattice, tile_id::Int, cp_id::Int)
         partner === nothing && return nothing
         return tile_id, partner
     end
-    neighbor_tile_id, neighbor_eref = sibling_endpoint(l, tile_id, EndpointRef(cp_id, 1))
+    neighbor_tile_id, neighbor_eref = sibling_EndpointRef(l, tile_id, EndpointRef(cp_id, 1))
     neighbor_tile_id, neighbor_eref.cp_id
 end
 
@@ -196,7 +202,7 @@ function next_curvepiece(l::Lattice, tile_id::Int, cp_id::Int)
         partner === nothing && return nothing
         return tile_id, partner
     end
-    neighbor_tile_id, neighbor_eref = sibling_endpoint(l, tile_id, EndpointRef(cp_id, 2))
+    neighbor_tile_id, neighbor_eref = sibling_EndpointRef(l, tile_id, EndpointRef(cp_id, 2))
     neighbor_tile_id, neighbor_eref.cp_id
 end
 
@@ -238,6 +244,33 @@ function anyon_tiles(l::Lattice, curve_id::Int)
         end
     end
     ids
+end
+
+"""
+Returns the id of the tile whose anyon is just after `tile_id`s anyon on its curve diagram.
+
+Returns `nothing` if this is the last anyon on its curve diagram.
+Throws an error if `tile_id`s anyon is not on a curve diagram.
+"""
+function next_anyon(l::Lattice, tile_id::Int)
+    curve_id = anyon_curve_id(l, tile_id)
+    curve_id === nothing && throw(ArgumentError("tile $tile_id's anyon not on a curve diagram"))
+    tiles = anyon_tiles(l, curve_id)
+    idx = findfirst(==(tile_id), tiles)
+    idx == length(tiles) ? nothing : tiles[idx + 1]
+end
+"""
+Returns the id of the tile whose anyon is just before `tile_id`s anyon on its curve diagram.
+
+Returns `nothing` if this is the first anyon on its curve diagram.
+Throws an error if `tile_id`s anyon is not on a curve diagram.
+"""
+function prev_anyon(l::Lattice, tile_id::Int)
+    curve_id = anyon_curve_id(l, tile_id)
+    curve_id === nothing && throw(ArgumentError("tile $tile_id's anyon not on a curve diagram"))
+    tiles = anyon_tiles(l, curve_id)
+    idx = findfirst(==(tile_id), tiles)
+    idx == 1 ? nothing : tiles[idx - 1]
 end
 
 ### INTERNAL MUTATORS ###
