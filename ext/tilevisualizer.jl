@@ -1,79 +1,226 @@
 ### GEOMETRY HELPERS ###
 
-"""Returns the polar angle of point `p` relative to origin."""
-@inline _polar_angle(p::Point2) = atan(p[2], p[1])
+"""Return the polar angle of `point` relative to origin."""
+@inline _polar_angle(point::Point2) = atan(point[2], point[1])
 
-"""Returns the polar angle of point `p` relative to center `c`."""
-@inline _polar_angle(p::Point2, c::Point2) = atan(p[2] - c[2], p[1] - c[1])
+"""Return the polar angle of `point` relative to `center`."""
+@inline _polar_angle(point::Point2, center::Point2) = atan(point[2] - center[2], point[1] - center[1])
 
-"""Normalizes an angle to the range 0 to 2π."""
-@inline _normalize_angle(a::Real) = mod(a, 2π)
-
+"""Normalize `angle` to the range 0 to 2π."""
+@inline _normalize_angle(angle::Real) = mod(angle, 2π)
 
 """
-Finds the midpoint angle `a` between angles `a1` and `a2`.
+Return the optimal angular traversal direction (clockwise vs counterclockwise) from
+`angle1` to `angle2`, where optimal means the one with the shortest arc (smaller
+angular span) which does not cross the angle `avoid`, if `avoid` is not nothing.
 
-- If `r` is provided, chooses the traversal from `a1` to `a2` (either clockwise or
-counterclockwise) that avoids crossing `r`, then returns its midpoint. Throws an
-error if `r` equals `a1` or `a2`.
-- If `r` is not provided, chooses the shorter arc (smaller angular span) and returns
-its midpoint.
+Takes account of input angles not being normalized to lie between `0` and `2π`.
 
-Returned angle is normalized to lie between 0 and 2π.
+Output is either `:cw` or `:ccw`, for clockwise and counterclockwise respectively.
+Throws an error if `avoid` equals either `angle1` or `angle2`.
 """
-function _midpoint_angle(a1::Real, a2::Real, r::Union{Real,Nothing}=nothing)
-    a1, a2 = _normalize_angle(a1), _normalize_angle(a2)
+function _traversal_direction(angle1::Real, angle2::Real, avoid::Union{Real, Nothing}=nothing)
+    a1, a2 = _normalize_angle(angle1), _normalize_angle(angle2)
     # 'rotate' frame of reference so a1 is at origin
     a2_prime = _normalize_angle(a2 - a1)
-    a_prime = if r === nothing
-        # shorter arc: counterclockwise if a2_prime ≤ π, clockwise otherwise
-        a2_prime ≤ π ? a2_prime / 2 : (a2_prime - 2π) / 2
+    if avoid === nothing
+        # traverse in the direction of the shorter arc
+        direction = a2_prime <= π ? :ccw : :cw
     else
-        r = _normalize_angle(r)
-        a1 != r && a2 != r || throw(ArgumentError("boundary angle $a1 or $a2 equals avoided angle $r"))
-        r_prime = _normalize_angle(r - a1)
-        # if r_prime is between 0 and a2_prime, avoid going counterclockwise, and vice versa
-        r_prime < a2_prime ? a2_prime / 2 : (a2_prime - 2π) / 2
+        avoid = _normalize_angle(avoid) # need to normalize here to do error check, and then again when rotating
+        a1 != avoid && a2 != avoid || throw(ArgumentError("boundary angle $a1 or $a2 equals avoided angle $avoid"))
+        # rotate frame of reference so a1 is at origin
+        avoid_prime = _normalize_angle(avoid - a1)
+        # if avoid_prime is between 0 and a2_prime, then a counterclockwise traversal from a1 to a2 would encounter it
+        direction = avoid_prime < a2_prime ? :cw : :ccw
     end
-    _normalize_angle(a_prime + a1)
+    direction
 end
+
+"""
+Return the unit vector perpendicular to `v` by rotating `v` 90 degrees counterclockwise if `ccw`,
+or clockwise otherwise.
+"""
+@inline _perp(v::Point2; ccw=true) = ccw ? Point2(-v[2], v[1]) : Point2(v[2], -v[1])
+
+"""
+Return the unit tangent to the circle with center `c` at a point on its circumference `p`,
+choosing the direction based on `ccw`.
+"""
+@inline _circle_tangent(c::Point2, p::Point2; ccw=true) = _perp(normalize(p - c); ccw)
+
+"""
+Return the unit normal to the line through `e1` and `e2`, pointing toward `c`.
+Throws an error if `c` lies on that line.
+"""
+function _normal_towards(e1::Point2, e2::Point2, c::Point2)
+    line = normalize(e2 - e1)
+    other = c - e1 # this segment makes an angle with line, letting us find the direction for the normal
+    dot(line, other) < 1 || throw(ArgumentError("c cannot be on line between e1 and e2"))
+    _perp(line; ccw=cross(line, other) > 0)
+end
+
+"""Return the point a distance `d` along the vector from `e1` to `e2`."""
+@inline _point_along_vector(e1::Point2, e2::Point2, d::Real) = e1 + d * normalize(e2 - e1)
 
 """Returns the two vertices bounding edge `edge` of polygon `v`, with wraparound."""
 @inline _edge_endpoints(v::Vector{<:Point2}, edge::Int) = (v[edge], v[mod1(edge + 1, length(v))])
 
-"""Returns the center of polygon `v`, computed as the average of its vertices."""
-@inline _tile_center(v::Vector{<:Point2}) = sum(v) / length(v)
-
-"""
-Returns the distance from `center` to the boundary of convex polygon `v` along `angle`.
-
-Casts a ray from `center` in direction `angle` and returns the distance to the first
-edge it intersects. Assumes `center` is strictly inside `v`.
-
-Not sure how this works, it was Claude-written and uses Cramer's rule.
-"""
-function _ray_to_boundary_dist(center::Point2, angle::Real, v::Vector{<:Point2})
-    dx, dy = cos(angle), sin(angle)
-    n = length(v)
-    min_t = Inf
-    for e in 1:n
-        vi, vj = v[e], v[mod1(e + 1, n)]
-        ex, ey = vj[1] - vi[1], vj[2] - vi[2]
-        rx, ry = vi[1] - center[1], vi[2] - center[2]
-        denom = dy * ex - dx * ey
-        iszero(denom) && continue  # ray is parallel to this edge
-        t = (ex * ry - rx * ey) / denom
-        s = (dx * ry - dy * rx) / denom
-        t > 0 && 0 ≤ s ≤ 1 && (min_t = min(min_t, t))
-    end
-    Float32(min_t)
-end
-
 """Returns a point `n/(N+1)` of the way along edge `edge` of polygon `v`, moving clockwise."""
 function _point_along_edge(v::Vector{<:Point2}, edge::Int, n::Int, N::Int)
-    v1, v2 = _edge_endpoints(v, edge)
-    v1 + (n / (N + 1)) * (v2 - v1)
+    e1, e2 = _edge_endpoints(v, edge)
+    _point_along_vector(e1, e2, n / (N+1))
 end
+
+"""Returns the center of polygon `v`, computed as the average of its vertices."""
+@inline _polygon_center(v::Vector{<:Point2}) = sum(v) / length(v)
+
+### CURVEPIECE DRAWING HELPERS ###
+
+"""
+Sample the Bezier curve parameterized by `p0`, `p1`, `p2`, and `p3` from `t=0` to `t=1`.
+
+The number of samples is scaled by the segment length `||p3 - p0||`, so that longer
+curves get more points and the visual density of samples stays roughly constant.
+`point_density` is the number of points per unit length.
+
+To make sure small curves are drawn, at minimum `min_points` points are sampled.
+"""
+function _sample_bezier(p0::Point2, p1::Point2, p2::Point2, p3::Point2;
+    point_density::Real=5, min_points::Int=5
+)
+    n = max(min_points, round(Int, point_density * norm(p3 - p0)))
+    bezier(p0, p1, p2, p3, t) = (1-t)^3*p0 + 3(1-t)^2*t*p1 + 3(1-t)*t^2*p2 + t^3*p3
+    [bezier(p0, p1, p2, p3, t) for t in range(0, 1, n)]
+end
+
+"""
+Sample a circular arc centered at `center` with radius `radius` from polar `angle1`
+to `angle2`, choosing the traversal direction (counterclockwise or not) based on `ccw`.
+
+Takes account of input angles not being normalized to lie between `0` and `2π`.
+
+The number of samples is scaled by the arc length, so that longer curves get more
+points and the visual density of samples stays roughly constant.
+`point_density` is the number of points per unit length.
+
+To make sure small curves are drawn, at minimum `min_points` points are sampled.
+"""
+function _sample_arc(center::Point2, radius::Real, angle1::Real, angle2::Real, ccw::Bool;
+    point_density::Real=5, min_points::Int=5
+)
+    a1, a2 = _normalize_angle(angle1), _normalize_angle(angle2)
+    angular_distance = ccw ? _normalize_angle(a2 - a1) : _normalize_angle(a1 - a2)
+    arc_length = angular_distance * radius
+    n = max(min_points, round(Int, point_density * arc_length))
+    angles = range(a1, a2, n)
+    [center + radius * Point2(cos(θ), sin(θ)) for θ in angles]
+end
+
+"""
+Generate the points used to plot an edge-to-edge curvepiece. A curvepiece is plotted
+in three parts: a radially inward part, a circular arc, and a radially outward part.
+The radial portions are cubic Bezier curves with control points chosen so that:
+- they stitch to the arc continuously and smoothly
+- they intersect the tile edges perpendicularly (so that the connections between
+corresponding curvepieces in adjacent tiles are continuous and smooth)
+For more information, see the documentation for `_radial_bezier_control_points`.
+
+This function is purely geometric, in the sense that it accepts as inputs points and
+parameters and returns a list of `Point2`s to be used to plot the curvepiece. The
+information the function accepts is, in brief:
+- `pn` the position of the nth (n=1, 2) curvepiece endpoint on its edge
+- `pn_em` the position of the mth (m=1, 2) endpoint of that aforementioned edge
+- `center` the position of the center of the tile
+- `radius` the radius of the arc
+- `ccw` whether the arc should traverse counterclockwise
+- `sharpness` how sharply the Bezier curve corners should be
+- `point_density` the point sampling density
+
+So for example, `p2` is the position of the outgoing curvepiece endpoint, while `p1_e1`
+and `p1_e2` are the endpoints of the tile edge the incoming curvepiece endpoint lies on.
+"""
+function _edge_to_edge_curvepiece_points(
+    p1::Point2,
+    p1_e1::Point2,
+    p1_e2::Point2,
+    p2::Point2,
+    p2_e1::Point2,
+    p2_e2::Point2,
+    center::Point2,
+    radius::Real,
+    ccw::Bool,
+    sharpness::Real;
+    point_density::Real=5
+)
+    # get Bezier control points
+    incoming_bezier_control_points = _radial_bezier_control_points(p1, p1_e1, p1_e2, center, radius, ccw, sharpness, :incoming)
+    outgoing_bezier_control_points = _radial_bezier_control_points(p2, p2_e1, p2_e2, center, radius, ccw, sharpness, :outgoing)
+    # get arc angles
+    angle1 = _polar_angle(p1, center)
+    angle2 = _polar_angle(p2, center)
+    # sample points
+    incoming_points = _sample_bezier(incoming_bezier_control_points...; point_density=point_density)
+    arc_points = _sample_arc(center, radius, angle1, angle2, ccw; point_density=point_density)
+    outgoing_points = _sample_bezier(outgoing_bezier_control_points...; point_density=point_density)
+    # trim duplicate points at start and end of arc, then concatenate into single list and return
+    vcat(incoming_points, arc_points[2:end-1], outgoing_points)
+end
+
+"""
+Each edge-to-edge curvepiece is plotted in three parts, two radial sections (one where the curvepiece
+enters the tile and one where it exits it) and a circular arc between them. This function computes the
+Bezier control points for the radial sections of the curvepiece's plot.
+
+Each radial section connects an entry/exit point `p` on an edge of the tile with the circular arc in the
+center. In particular, the circular arc and radial section connect at a point on the line between `p` and
+the `center` of the tile, at a distance of `radius` from the tile's `center`.
+
+The control points are chosen so that the curve intersects the tile edge (whose endpoints are `e1` and
+`e2`) perpendicularly and so the tangents to the curve and arc at the connection point are equal.
+
+Arguments:
+- `p` the point where the curvepiece enters/exits the tile
+- `e1` one endpoint of the edge the curvepiece enters/exits the tile through
+- `e2` the other endpoint of that same edge
+- `center` the center of the tile
+- `radius` the radius of the circular arc segment
+- `ccw` the traversal direction of the circular arc segment
+- `sharpness` how rounded the connection between the curve and arc is
+- `direction` whether the radial segment is entering or exiting; should be one of `:incoming` or `:outgoing`
+"""
+function _radial_bezier_control_points(
+    p::Point2, e1::Point2, e2::Point2,
+    center::Point2, radius::Real, ccw::Bool,
+    sharpness::Real, direction::Symbol
+)
+    edge_normal = _normal_towards(e1, e2, center)
+    connection_point = _point_along_vector(center, p, radius)
+    connection_tangent = _circle_tangent(center, connection_point; ccw=ccw)
+
+    if direction === :incoming
+        p0 = p
+        p3 = connection_point
+        p1 = p0 + sharpness * edge_normal
+        p2 = p3 - sharpness * connection_tangent
+    elseif direction === :outgoing
+        p0 = connection_point
+        p3 = p
+        p1 = p0 + sharpness * connection_tangent
+        p2 = p3 - sharpness * edge_normal
+    else
+        throw(ArgumentError("direction must be either :incoming or :outgoing, got $direction"))
+    end
+    p0, p1, p2, p3
+end
+
+function anyon_curvepiece(intersection, edge_p1, edge_p2, center, sharpness, n=20):
+    t_edge = edge_normal(edge_p1, edge_p2, center)
+    p0 = intersection
+    p3 = center
+    p1 = p0 + sharpness * t_edge
+    p2 = p3  # free; pulling toward center directly is fine
+    return sample_bezier(p0, p1, p2, p3, n)
 
 ### ENDPOINT POSITION HELPERS ###
 
