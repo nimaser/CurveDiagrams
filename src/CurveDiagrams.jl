@@ -7,15 +7,15 @@ include("tile/curvepiece.jl")
 
 export EndpointRef, Tile
 export num_edges, next_edge, prev_edge # tile geometry
-export has_endpoints, has_endpoint, num_endpoints
-export num_anyon_curvepieces, curvepiece_ids, get_curvepiece
-export get_endpoint
-export get_edge_EndpointRef, get_edge_EndpointRefs, get_anyon_EndpointRefs
-export get_partner_EndpointRef, has_edge_partner, has_anyon_partner
-export get_connected_edge_EndpointRef
-export get_anyon_EndpointRef, is_anyon_curvepiece, get_anyon_cp_ids, get_partner_cp_id, anyon_curve_id
-export next_EndpointRef_on_edge, prev_EndpointRef_on_edge, next_EndpointRef, prev_EndpointRef
-export EndpointRefs_between, unpaired_EndpointRefs, order_EndpointRefs
+export has_edge_erefs, has_edge_eref, num_edge_erefs, num_anyon_erefs
+export edge_eref, edge_erefs, anyon_erefs, anyon_eref, endpoint
+export curvepiece_ids, curvepiece
+export calculate_nesting_hierarchy
+export cp_partner, cp_partner_type
+export tile_partner
+export is_anyon_curvepiece, anyon_cp_ids, partner_cp_id, anyon_curve_id
+export next_eref, prev_eref, next_eref_wrap, prev_eref_wrap
+export erefs_between, unpaired_erefs, ordered_erefs
 include("tile/tile.jl")
 
 export insert_curvepiece!, remove_curvepiece!, move_endpoint!, flip_direction!, set_curvepiece_metadata!

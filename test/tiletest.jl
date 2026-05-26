@@ -1,40 +1,5 @@
 import CurveDiagrams: _allocate_cp_id!, _set_endpoint_location!, _set_endpoint_pos!,
-    _insert_edge_EndpointRef!, _remove_edge_EndpointRef!, _push_anyon_EndpointRef!
-
-@testset "Endpoint and Curvepiece" begin
-    # random filler values that shouldn't affect test results
-    maxrandval = 6
-    edge1, pos1 = rand(1:maxrandval), rand(1:maxrandval)
-    edge2, pos2 = rand(1:maxrandval), rand(1:maxrandval)
-    id, count = rand(1:maxrandval), rand(1:maxrandval)
-    # construct four representative curvepiece endpoints
-    ae_in = AnyonEndpoint(IN)
-    ae_out = AnyonEndpoint(OUT)
-    ee_in = EdgeEndpoint(IN, edge1, pos1)
-    ee_out = EdgeEndpoint(OUT, edge2, pos2)
-    # check that they have the right type hierarchy
-    @test ae_in isa CurvepieceEndpoint
-    @test ae_out isa CurvepieceEndpoint
-    @test ee_in isa CurvepieceEndpoint
-    @test ee_out isa CurvepieceEndpoint
-    # check that two anyon endpoints cannot be on the same curvepiece
-    @test_throws ArgumentError Curvepiece(id, count, ae_in, ae_in)
-    @test_throws ArgumentError Curvepiece(id, count, ae_in, ae_out)
-    @test_throws ArgumentError Curvepiece(id, count, ae_out, ae_in)
-    @test_throws ArgumentError Curvepiece(id, count, ae_out, ae_out)
-    # check that two edge endpoints on a curvepiece cannot have the same direction
-    @test_throws ArgumentError Curvepiece(id, count, ee_in, ee_in)
-    @test_throws ArgumentError Curvepiece(id, count, ee_out, ee_out)
-    # check that an edge and anyon endpoint in the same curvepiece cannot have different directions
-    @test_throws ArgumentError Curvepiece(id, count, ae_in, ee_out)
-    @test_throws ArgumentError Curvepiece(id, count, ae_out, ee_in)
-    @test_throws ArgumentError Curvepiece(id, count, ee_in, ae_out)
-    @test_throws ArgumentError Curvepiece(id, count, ee_out, ae_in)
-    # check that endpoints are automatically correctly ordered for the three valid cases
-    @test Curvepiece(id, count, ee_in, ae_in) == Curvepiece(id, count, ae_in, ee_in)
-    @test Curvepiece(id, count, ee_out, ae_out) == Curvepiece(id, count, ae_out, ee_out)
-    @test Curvepiece(id, count, ee_in, ee_out) == Curvepiece(id, count, ee_out, ee_in)
-end
+    _insert_edge_eref!, _remove_edge_eref!, _push_anyon_eref!
 
 @testset "EndpointRef" begin
     # random filler values that shouldn't affect test results
@@ -75,7 +40,7 @@ end
 
     # set up a 3-edge tile with a single anyon-to-edge curvepiece - only used in anyon curvepiece tests
     t1 = Tile(3)
-    @test num_anyon_curvepieces(t1) == 0
+    @test num_anyon_erefs(t1) == 0
     t1._curvepieces[5] = Curvepiece(5, 1, EdgeEndpoint(IN, 1, 1), AnyonEndpoint(IN))
     push!(t1._edge_endpoints[1], EndpointRef(5, 1))
     push!(t1._anyon_endpoints, EndpointRef(5, 2))
@@ -89,114 +54,254 @@ end
     @test prev_edge(t, 2) == 1
     @test prev_edge(t, 1) == 5
 
-    # has_endpoints
-    @test has_endpoints(t, 1)
-    @test !has_endpoints(t, 3)
+    # has_edge_erefs
+    @test has_edge_erefs(t, 1)
+    @test !has_edge_erefs(t, 3)
 
-    # num_endpoints
-    @test num_endpoints(t, 1) == 3
-    @test num_endpoints(t, 2) == 1
-    @test num_endpoints(t, 3) == 0
+    # num_edge_erefs
+    @test num_edge_erefs(t, 1) == 3
+    @test num_edge_erefs(t, 2) == 1
+    @test num_edge_erefs(t, 3) == 0
 
-    # num_anyon_curvepieces
-    @test num_anyon_curvepieces(t) == 2
-    @test num_anyon_curvepieces(t1) == 1
+    # num_anyon_erefs
+    @test num_anyon_erefs(t) == 2
+    @test num_anyon_erefs(t1) == 1
 
     # curvepiece_ids — sorted
     @test curvepiece_ids(t) == [1, 2, 3, 4]
 
-    # get_curvepiece
-    @test get_curvepiece(t, 1) == c1
-    @test get_curvepiece(t, 3) == c3
+    # curvepiece
+    @test curvepiece(t, 1) == c1
+    @test curvepiece(t, 3) == c3
 
-    # get_endpoint
-    @test get_endpoint(t, EndpointRef(1, 1)) == c1.endpoint1
-    @test get_endpoint(t, EndpointRef(1, 2)) == c1.endpoint2
-    @test get_endpoint(t, EndpointRef(2, 1)) == c2.endpoint1
-    @test get_endpoint(t, EndpointRef(2, 2)) == c2.endpoint2
-    @test get_endpoint(t, EndpointRef(3, 1)) == c3.endpoint1
-    @test get_endpoint(t, EndpointRef(3, 2)) == c3.endpoint2
-    @test get_endpoint(t, EndpointRef(4, 1)) == c4.endpoint1
-    @test get_endpoint(t, EndpointRef(4, 2)) == c4.endpoint2
+    # endpoint
+    @test endpoint(t, EndpointRef(1, 1)) == c1.endpoint1
+    @test endpoint(t, EndpointRef(1, 2)) == c1.endpoint2
+    @test endpoint(t, EndpointRef(2, 1)) == c2.endpoint1
+    @test endpoint(t, EndpointRef(2, 2)) == c2.endpoint2
+    @test endpoint(t, EndpointRef(3, 1)) == c3.endpoint1
+    @test endpoint(t, EndpointRef(3, 2)) == c3.endpoint2
+    @test endpoint(t, EndpointRef(4, 1)) == c4.endpoint1
+    @test endpoint(t, EndpointRef(4, 2)) == c4.endpoint2
 
-    # get_edge_EndpointRef, fetches erefs by edge and position
-    @test get_edge_EndpointRef(t, 1, 1) == EndpointRef(1, 1)
-    @test get_edge_EndpointRef(t, 1, 2) == EndpointRef(2, 1)
-    @test get_edge_EndpointRef(t, 1, 3) == EndpointRef(2, 2)
-    @test get_edge_EndpointRef(t, 2, 1) == EndpointRef(3, 1)
-    @test get_edge_EndpointRef(t, 4, 1) == EndpointRef(4, 2)
-    @test get_edge_EndpointRef(t, 4, 2) == EndpointRef(1, 2)
+    # edge_eref, fetches erefs by edge and position
+    @test edge_eref(t, 1, 1) == EndpointRef(1, 1)
+    @test edge_eref(t, 1, 2) == EndpointRef(2, 1)
+    @test edge_eref(t, 1, 3) == EndpointRef(2, 2)
+    @test edge_eref(t, 2, 1) == EndpointRef(3, 1)
+    @test edge_eref(t, 4, 1) == EndpointRef(4, 2)
+    @test edge_eref(t, 4, 2) == EndpointRef(1, 2)
 
-    # get_edge_EndpointRefs(t, edge) — multi-endpoint edge and empty edge
-    @test get_edge_EndpointRefs(t, 1) == [EndpointRef(1,1), EndpointRef(2,1), EndpointRef(2,2)]
-    @test get_edge_EndpointRefs(t, 3) == EndpointRef[]
+    # edge_erefs(t, edge) — multi-endpoint edge and empty edge
+    @test edge_erefs(t, 1) == [EndpointRef(1,1), EndpointRef(2,1), EndpointRef(2,2)]
+    @test edge_erefs(t, 3) == EndpointRef[]
 
-    # get_edge_EndpointRefs(t) — all erefs concatenated in clockwise order, empty edges skipped
-    @test get_edge_EndpointRefs(t) == [
+    # edge_erefs(t) — all erefs concatenated in clockwise order, empty edges skipped
+    @test edge_erefs(t) == [
         EndpointRef(1,1), EndpointRef(2,1), EndpointRef(2,2),   # edge 1
         EndpointRef(3,1),                                       # edge 2 (edge 3 is empty)
         EndpointRef(4,2), EndpointRef(1,2),                     # edge 4 (edge 5 is empty)
     ]
 
-    # get_anyon_EndpointRefs, order doesn't matter
-    @test Set(get_anyon_EndpointRefs(t)) == Set([EndpointRef(3,2), EndpointRef(4,1)])
+    # anyon_erefs, order doesn't matter
+    @test Set(anyon_erefs(t)) == Set([EndpointRef(3,2), EndpointRef(4,1)])
 
-    # get_partner_EndpointRef — flips endpoint_idx between 1 and 2
-    @test get_partner_EndpointRef(EndpointRef(2, 1)) == EndpointRef(2, 2)
-    @test get_partner_EndpointRef(EndpointRef(2, 2)) == EndpointRef(2, 1)
+    # cp_partner — flips endpoint_idx between 1 and 2
+    @test cp_partner(EndpointRef(2, 1)) == EndpointRef(2, 2)
+    @test cp_partner(EndpointRef(2, 2)) == EndpointRef(2, 1)
 
-    # has_edge_partner / has_anyon_partner
-    @test has_edge_partner(t, EndpointRef(1, 1))    # partner is Edge(OUT,4,2)
-    @test !has_edge_partner(t, EndpointRef(3, 1))   # partner is Anyon
-    @test has_anyon_partner(t, EndpointRef(3, 1))   # partner is Anyon
-    @test !has_anyon_partner(t, EndpointRef(1, 1))  # partner is Edge
-    @test has_anyon_partner(t, EndpointRef(4, 2))   # partner is Anyon(OUT)
+    # cp_partner_type
+    @test cp_partner_type(t, EndpointRef(1, 1)) === EdgeEndpoint    # partner is Edge(OUT,4,2)
+    @test cp_partner_type(t, EndpointRef(3, 1)) !== EdgeEndpoint   # partner is Anyon
+    @test cp_partner_type(t, EndpointRef(3, 1)) === AnyonEndpoint   # partner is Anyon
+    @test cp_partner_type(t, EndpointRef(1, 1)) !== AnyonEndpoint  # partner is Edge
+    @test cp_partner_type(t, EndpointRef(4, 2)) === AnyonEndpoint   # partner is Anyon(OUT)
 
-    # get_anyon_EndpointRef — fetches from cp_id
-    @test get_anyon_EndpointRef(t, 3) == EndpointRef(3, 2)
-    @test get_anyon_EndpointRef(t, 4) == EndpointRef(4, 1)
-    @test get_anyon_EndpointRef(t, 1) === nothing
+    # anyon_eref — fetches from cp_id
+    @test anyon_eref(t, 3) == EndpointRef(3, 2)
+    @test anyon_eref(t, 4) == EndpointRef(4, 1)
+    @test anyon_eref(t, 1) === nothing
 
     # is_anyon_curvepiece
     @test is_anyon_curvepiece(t, 3)
     @test !is_anyon_curvepiece(t, 1)
 
-    # get_anyon_cp_ids, order doesn't matter
-    @test Set(get_anyon_cp_ids(t)) == Set([3, 4])
+    # anyon_cp_ids, order doesn't matter
+    @test Set(anyon_cp_ids(t)) == Set([3, 4])
 
-    # get_partner_cp_id — two anyon cps, single anyon cp, and non-anyon cp
-    @test get_partner_cp_id(t, 3) == 4
-    @test get_partner_cp_id(t, 4) == 3
-    @test get_partner_cp_id(t1, 5) === nothing
-    @test_throws ArgumentError get_partner_cp_id(t, 1)
+    # partner_cp_id — two anyon cps, single anyon cp, and non-anyon cp
+    @test partner_cp_id(t, 3) == 4
+    @test partner_cp_id(t, 4) == 3
+    @test partner_cp_id(t1, 5) === nothing
+    @test_throws ArgumentError partner_cp_id(t, 1)
 
     # anyon_curve_id
     @test anyon_curve_id(t) == 30
     @test anyon_curve_id(t1) == 5
 
-    # next_EndpointRef_on_edge
-    @test next_EndpointRef_on_edge(t, 1, 1) == EndpointRef(2, 1)  # pos 1 -> pos 2
-    @test next_EndpointRef_on_edge(t, 1, 2) == EndpointRef(2, 2)  # pos 2 -> pos 3
-    @test next_EndpointRef_on_edge(t, 1, 3) === nothing            # at last pos on edge
-    @test next_EndpointRef_on_edge(t, 2, 1) === nothing            # single endpoint on edge
+    # next_eref
+    @test next_eref(t, 1, 1) == EndpointRef(2, 1)  # pos 1 -> pos 2
+    @test next_eref(t, 1, 2) == EndpointRef(2, 2)  # pos 2 -> pos 3
+    @test next_eref(t, 1, 3) === nothing            # at last pos on edge
+    @test next_eref(t, 2, 1) === nothing            # single endpoint on edge
 
-    # prev_EndpointRef_on_edge
-    @test prev_EndpointRef_on_edge(t, 1, 2) == EndpointRef(1, 1)  # pos 2 -> pos 1
-    @test prev_EndpointRef_on_edge(t, 1, 3) == EndpointRef(2, 1)  # pos 3 -> pos 2
-    @test prev_EndpointRef_on_edge(t, 1, 1) === nothing            # at first pos on edge
-    @test prev_EndpointRef_on_edge(t, 2, 1) === nothing            # single endpoint on edge
+    # prev_eref
+    @test prev_eref(t, 1, 2) == EndpointRef(1, 1)  # pos 2 -> pos 1
+    @test prev_eref(t, 1, 3) == EndpointRef(2, 1)  # pos 3 -> pos 2
+    @test prev_eref(t, 1, 1) === nothing            # at first pos on edge
+    @test prev_eref(t, 2, 1) === nothing            # single endpoint on edge
 
-    # next_EndpointRef
-    @test next_EndpointRef(t, 1, 2) == EndpointRef(2, 2)  # same edge: pos 2 -> pos 3
-    @test next_EndpointRef(t, 1, 3) == EndpointRef(3, 1)  # end of edge 1 -> first on edge 2
-    @test next_EndpointRef(t, 2, 1) == EndpointRef(4, 2)  # end of edge 2 -> skips empty edge 3 -> first on edge 4
-    @test next_EndpointRef(t, 4, 2) == EndpointRef(1, 1)  # end of edge 4 -> skips empty edge 5 -> first on edge 1
+    # next_eref_wrap
+    @test next_eref_wrap(t, 1, 2) == EndpointRef(2, 2)  # same edge: pos 2 -> pos 3
+    @test next_eref_wrap(t, 1, 3) == EndpointRef(3, 1)  # end of edge 1 -> first on edge 2
+    @test next_eref_wrap(t, 2, 1) == EndpointRef(4, 2)  # end of edge 2 -> skips empty edge 3 -> first on edge 4
+    @test next_eref_wrap(t, 4, 2) == EndpointRef(1, 1)  # end of edge 4 -> skips empty edge 5 -> first on edge 1
 
-    # prev_EndpointRef
-    @test prev_EndpointRef(t, 1, 2) == EndpointRef(1, 1)  # same edge: pos 2 -> pos 1
-    @test prev_EndpointRef(t, 2, 1) == EndpointRef(2, 2)  # start of edge 2 -> last on edge 1
-    @test prev_EndpointRef(t, 4, 1) == EndpointRef(3, 1)  # start of edge 4 -> skips empty edge 3 -> last on edge 2
-    @test prev_EndpointRef(t, 1, 1) == EndpointRef(1, 2)  # start of edge 1 -> skips empty edge 5 -> last on edge 4
+    # prev_eref_wrap
+    @test prev_eref_wrap(t, 1, 2) == EndpointRef(1, 1)  # same edge: pos 2 -> pos 1
+    @test prev_eref_wrap(t, 2, 1) == EndpointRef(2, 2)  # start of edge 2 -> last on edge 1
+    @test prev_eref_wrap(t, 4, 1) == EndpointRef(3, 1)  # start of edge 4 -> skips empty edge 3 -> last on edge 2
+    @test prev_eref_wrap(t, 1, 1) == EndpointRef(1, 2)  # start of edge 1 -> skips empty edge 5 -> last on edge 4
+end
+
+@testset "Tile nesting number" begin
+    # single e2e with endpoints on different edges: nesting 1, not enclosed by anything
+    let t = Tile(3)
+        t._curvepieces[1] = Curvepiece(1, 1, EdgeEndpoint(IN, 1, 1), EdgeEndpoint(OUT, 2, 1))
+        push!(t._edge_endpoints[1], EndpointRef(1, 1))
+        push!(t._edge_endpoints[2], EndpointRef(1, 2))
+        @test calculate_nesting_hierarchy(t) == Dict(1 => (1, 1))
+    end
+    # single a2e curvepiece: ignored by the algorithm, result is empty
+    let t = Tile(3)
+        t._curvepieces[1] = Curvepiece(1, 1, EdgeEndpoint(IN, 1, 1), AnyonEndpoint(IN))
+        push!(t._edge_endpoints[1], EndpointRef(1, 1))
+        push!(t._anyon_endpoints, EndpointRef(1, 2))
+        @test isempty(calculate_nesting_hierarchy(t))
+    end
+    # A (nesting 2) encloses B (nesting 1) and is a sibling of C (nesting 1)
+    # clockwise boundary order: A, B, B, A, C, C
+    let t = Tile(3)
+        t._curvepieces[1] = Curvepiece(1, 1, EdgeEndpoint(IN, 1, 1), EdgeEndpoint(OUT, 2, 2))  # A
+        t._curvepieces[2] = Curvepiece(2, 1, EdgeEndpoint(IN, 1, 2), EdgeEndpoint(OUT, 2, 1))  # B
+        t._curvepieces[3] = Curvepiece(3, 1, EdgeEndpoint(IN, 2, 3), EdgeEndpoint(OUT, 3, 1))  # C
+        push!(t._edge_endpoints[1], EndpointRef(1, 1))  # A.endpoint1
+        push!(t._edge_endpoints[1], EndpointRef(2, 1))  # B.endpoint1
+        push!(t._edge_endpoints[2], EndpointRef(2, 2))  # B.endpoint2
+        push!(t._edge_endpoints[2], EndpointRef(1, 2))  # A.endpoint2
+        push!(t._edge_endpoints[2], EndpointRef(3, 1))  # C.endpoint1
+        push!(t._edge_endpoints[3], EndpointRef(3, 2))  # C.endpoint2
+        result = calculate_nesting_hierarchy(t)
+        @test result[1] == (2, 2)  # A: nesting 2, not enclosed
+        @test result[2] == (1, 2)  # B: nesting 1, enclosed by A
+        @test result[3] == (1, 1)  # C: nesting 1, not enclosed
+    end
+    # same case as before, but C is now on edges 3 and 1, meaning if the algorithm isn't wraparound
+    # -aware it will perceive it as enclosing A; clockwise boundary order: C, A, B, B, A, C
+    let t = Tile(3)
+        t._curvepieces[1] = Curvepiece(1, 1, EdgeEndpoint(IN, 1, 2), EdgeEndpoint(OUT, 2, 2))  # A
+        t._curvepieces[2] = Curvepiece(2, 1, EdgeEndpoint(IN, 1, 3), EdgeEndpoint(OUT, 2, 1))  # B
+        t._curvepieces[3] = Curvepiece(3, 1, EdgeEndpoint(IN, 3, 1), EdgeEndpoint(OUT, 1, 1))  # C
+        push!(t._edge_endpoints[1], EndpointRef(3, 2))  # C.endpoint2
+        push!(t._edge_endpoints[1], EndpointRef(1, 1))  # A.endpoint1
+        push!(t._edge_endpoints[1], EndpointRef(2, 1))  # B.endpoint1
+        push!(t._edge_endpoints[2], EndpointRef(2, 2))  # B.endpoint2
+        push!(t._edge_endpoints[2], EndpointRef(1, 2))  # A.endpoint2
+        push!(t._edge_endpoints[3], EndpointRef(3, 1))  # C.endpoint1
+        result = calculate_nesting_hierarchy(t)
+        # note that here we're breaking an abstraction barrier somewhat by using knowledge about how
+        # the starting position affects the assignment of nesting numbers. an alternative viable
+        # assignment would have been for A to enclose C instead of B, but because of which edge the
+        # algorithm started on this doesn't happen
+        @test result[1] == (2, 2)  # A: nesting 2, not enclosed
+        @test result[2] == (1, 2)  # B: nesting 1, enclosed by A
+        @test result[3] == (1, 1)  # C: nesting 1, not enclosed
+    end
+    # clockwise boundary: A B C B A on edge 2
+    # C is a2e acting as a barrier; we make sure that A is enclosed by B rather than the other way around
+    let t = Tile(3)
+        t._curvepieces[1] = Curvepiece(1, 1, EdgeEndpoint(IN, 2, 1), EdgeEndpoint(OUT, 2, 5))  # A
+        t._curvepieces[2] = Curvepiece(2, 1, EdgeEndpoint(IN, 2, 2), EdgeEndpoint(OUT, 2, 4))  # B
+        t._curvepieces[3] = Curvepiece(3, 1, EdgeEndpoint(IN, 2, 3), AnyonEndpoint(IN))        # C
+        push!(t._edge_endpoints[2], EndpointRef(1, 1))  # A.endpoint1
+        push!(t._edge_endpoints[2], EndpointRef(2, 1))  # B.endpoint1
+        push!(t._edge_endpoints[2], EndpointRef(3, 1))  # C.endpoint1
+        push!(t._edge_endpoints[2], EndpointRef(2, 2))  # B.endpoint2
+        push!(t._edge_endpoints[2], EndpointRef(1, 2))  # A.endpoint2
+        push!(t._anyon_endpoints, EndpointRef(3, 2))    # C.anyon endpoint
+        result = calculate_nesting_hierarchy(t)
+        @test !haskey(result, 3)        # C: anyon curvepiece, absent from result
+        @test result[1] == (1, 2)       # A: nesting 1, max_enc 2
+        @test result[2] == (2, 2)       # B: nesting 2, not enclosed
+    end
+    # pentagon with clockwise boundary: A, B, B, C, D, E, F, F, E, C, A
+    # A, B, F have nesting=1; C, E have nesting=2; D is a2e with no nesting
+    # A and B are siblings enclosed by C; F is enclosed by E
+    let t = Tile(5)
+        t._curvepieces[1] = Curvepiece(1, 1, EdgeEndpoint(IN, 1, 1), EdgeEndpoint(OUT, 5, 2))  # A
+        t._curvepieces[2] = Curvepiece(2, 1, EdgeEndpoint(IN, 1, 2), EdgeEndpoint(OUT, 2, 1))  # B
+        t._curvepieces[3] = Curvepiece(3, 1, EdgeEndpoint(IN, 2, 2), EdgeEndpoint(OUT, 5, 1))  # C
+        t._curvepieces[4] = Curvepiece(4, 1, EdgeEndpoint(IN, 2, 3), AnyonEndpoint(IN))        # D
+        t._curvepieces[5] = Curvepiece(5, 1, EdgeEndpoint(IN, 3, 1), EdgeEndpoint(OUT, 4, 2))  # E
+        t._curvepieces[6] = Curvepiece(6, 1, EdgeEndpoint(IN, 3, 2), EdgeEndpoint(OUT, 4, 1))  # F
+        push!(t._edge_endpoints[1], EndpointRef(1, 1))  # A.endpoint1
+        push!(t._edge_endpoints[1], EndpointRef(2, 1))  # B.endpoint1
+        push!(t._edge_endpoints[2], EndpointRef(2, 2))  # B.endpoint2
+        push!(t._edge_endpoints[2], EndpointRef(3, 1))  # C.endpoint1
+        push!(t._edge_endpoints[2], EndpointRef(4, 1))  # D.endpoint1
+        push!(t._edge_endpoints[3], EndpointRef(5, 1))  # E.endpoint1
+        push!(t._edge_endpoints[3], EndpointRef(6, 1))  # F.endpoint1
+        push!(t._edge_endpoints[4], EndpointRef(6, 2))  # F.endpoint2
+        push!(t._edge_endpoints[4], EndpointRef(5, 2))  # E.endpoint2
+        push!(t._edge_endpoints[5], EndpointRef(3, 2))  # C.endpoint2
+        push!(t._edge_endpoints[5], EndpointRef(1, 2))  # A.endpoint2
+        push!(t._anyon_endpoints, EndpointRef(4, 2))    # D.anyon endpoint
+        result = calculate_nesting_hierarchy(t)
+        @test !haskey(result, 4)        # D: anyon curvepiece, absent from result
+        @test result[1] == (1, 2)       # A: nesting 1, enclosed by C (nesting 2)
+        @test result[2] == (1, 2)       # B: nesting 1, enclosed by C (nesting 2)
+        @test result[3] == (2, 2)       # C: nesting 2, not enclosed
+        @test result[5] == (2, 2)       # E: nesting 2, not enclosed
+        @test result[6] == (1, 2)       # F: nesting 1, enclosed by E (nesting 2)
+    end
+    # triangle with clockwise boundary: (A, B, C, D, D, E), (F, F, G), (C, H, H, B, A)
+    # E, G are a2e; A, D, F, H have nesting 1, B has nesting 2, C has nesting 3
+    # D, F have max enclosing of 1, A, B, C, H have max enclosing of 3
+    let t = Tile(3)
+        t._curvepieces[1] = Curvepiece(1, 1, EdgeEndpoint(IN, 1, 1), EdgeEndpoint(OUT, 3, 5))  # A
+        t._curvepieces[2] = Curvepiece(2, 1, EdgeEndpoint(IN, 1, 2), EdgeEndpoint(OUT, 3, 4))  # B
+        t._curvepieces[3] = Curvepiece(3, 1, EdgeEndpoint(IN, 1, 3), EdgeEndpoint(OUT, 3, 1))  # C
+        t._curvepieces[4] = Curvepiece(4, 1, EdgeEndpoint(IN, 1, 4), EdgeEndpoint(OUT, 1, 5))  # D
+        t._curvepieces[5] = Curvepiece(5, 1, EdgeEndpoint(IN, 1, 6), AnyonEndpoint(IN))        # E
+        t._curvepieces[6] = Curvepiece(6, 1, EdgeEndpoint(IN, 2, 1), EdgeEndpoint(OUT, 2, 2))  # F
+        t._curvepieces[7] = Curvepiece(7, 1, EdgeEndpoint(IN, 2, 3), AnyonEndpoint(IN))        # G
+        t._curvepieces[8] = Curvepiece(8, 1, EdgeEndpoint(IN, 3, 2), EdgeEndpoint(OUT, 3, 3))  # H
+        push!(t._edge_endpoints[1], EndpointRef(1, 1))  # A.endpoint1
+        push!(t._edge_endpoints[1], EndpointRef(2, 1))  # B.endpoint1
+        push!(t._edge_endpoints[1], EndpointRef(3, 1))  # C.endpoint1
+        push!(t._edge_endpoints[1], EndpointRef(4, 1))  # D.endpoint1
+        push!(t._edge_endpoints[1], EndpointRef(4, 2))  # D.endpoint2
+        push!(t._edge_endpoints[1], EndpointRef(5, 1))  # E.endpoint1
+        push!(t._edge_endpoints[2], EndpointRef(6, 1))  # F.endpoint1
+        push!(t._edge_endpoints[2], EndpointRef(6, 2))  # F.endpoint2
+        push!(t._edge_endpoints[2], EndpointRef(7, 1))  # G.endpoint1
+        push!(t._edge_endpoints[3], EndpointRef(3, 2))  # C.endpoint2
+        push!(t._edge_endpoints[3], EndpointRef(8, 1))  # H.endpoint1
+        push!(t._edge_endpoints[3], EndpointRef(8, 2))  # H.endpoint2
+        push!(t._edge_endpoints[3], EndpointRef(2, 2))  # B.endpoint2
+        push!(t._edge_endpoints[3], EndpointRef(1, 2))  # A.endpoint2
+        push!(t._anyon_endpoints, EndpointRef(5, 2))    # E.anyon endpoint
+        push!(t._anyon_endpoints, EndpointRef(7, 2))    # G.anyon endpoint
+        result = calculate_nesting_hierarchy(t)
+        @test !haskey(result, 5)        # E: anyon curvepiece, absent from result
+        @test !haskey(result, 7)        # G: anyon curvepiece, absent from result
+        @test result[1] == (1, 3)       # A: nesting 1, max_enc 3
+        @test result[2] == (2, 3)       # B: nesting 2, max_enc 3
+        @test result[3] == (3, 3)       # C: nesting 3, not enclosed
+        @test result[4] == (1, 1)       # D: nesting 1, not enclosed
+        @test result[6] == (1, 1)       # F: nesting 1, not enclosed
+        @test result[8] == (1, 3)       # H: nesting 1, max_enc 3
+    end
 end
 
 @testset "Tile internal mutators" begin
@@ -211,65 +316,65 @@ end
     let t = Tile(3)
         t._curvepieces[1] = Curvepiece(1, 0, EdgeEndpoint(IN, 1, 1), EdgeEndpoint(OUT, 2, 1))
         _set_endpoint_location!(t, EndpointRef(1, 1), 3, 2)
-        ep = get_endpoint(t, EndpointRef(1, 1))
+        ep = endpoint(t, EndpointRef(1, 1))
         @test ep.edge == 3 && ep.pos == 2 && ep.direction == IN
-        @test get_endpoint(t, EndpointRef(1, 2)) == EdgeEndpoint(OUT, 2, 1)  # partner unchanged
+        @test endpoint(t, EndpointRef(1, 2)) == EdgeEndpoint(OUT, 2, 1)  # partner unchanged
     end
 
     # _set_endpoint_pos! — only pos changes, edge and direction preserved
     let t = Tile(3)
         t._curvepieces[1] = Curvepiece(1, 0, EdgeEndpoint(IN, 1, 1), EdgeEndpoint(OUT, 2, 1))
         _set_endpoint_pos!(t, EndpointRef(1, 1), 2)
-        ep = get_endpoint(t, EndpointRef(1, 1))
+        ep = endpoint(t, EndpointRef(1, 1))
         @test ep.edge == 1 && ep.pos == 2 && ep.direction == IN
-        @test get_endpoint(t, EndpointRef(1, 2)) == EdgeEndpoint(OUT, 2, 1)  # partner unchanged
+        @test endpoint(t, EndpointRef(1, 2)) == EdgeEndpoint(OUT, 2, 1)  # partner unchanged
     end
 
-    # _insert_edge_EndpointRef! - inserts eref and shifts existing ones up
+    # _insert_edge_eref! - inserts eref and shifts existing ones up
     let t = Tile(3)
         # cp1 has both endpoints on edge 1 at initial positions 1 and 2
         t._curvepieces[1] = Curvepiece(1, 1, EdgeEndpoint(IN, 1, 1), EdgeEndpoint(OUT, 1, 2))
-        _insert_edge_EndpointRef!(t, EndpointRef(1, 1), 1, 1)
-        _insert_edge_EndpointRef!(t, EndpointRef(1, 2), 1, 2)
+        _insert_edge_eref!(t, EndpointRef(1, 1), 1, 1)
+        _insert_edge_eref!(t, EndpointRef(1, 2), 1, 2)
         # cp3's edge-1 endpoint (EndpointRef(3,2)) will be inserted at pos 1, shifting cp1 to pos 2 and 3
         t._curvepieces[3] = Curvepiece(3, 1, EdgeEndpoint(IN, 3, 1), EdgeEndpoint(OUT, 1, 1))
-        _insert_edge_EndpointRef!(t, EndpointRef(3, 1), 3, 1)
-        _insert_edge_EndpointRef!(t, EndpointRef(3, 2), 1, 1)
+        _insert_edge_eref!(t, EndpointRef(3, 1), 3, 1)
+        _insert_edge_eref!(t, EndpointRef(3, 2), 1, 1)
         # check that EndpointRefs are correct
-        @test get_edge_EndpointRef(t, 1, 1) == EndpointRef(3, 2)
-        @test get_edge_EndpointRef(t, 1, 2) == EndpointRef(1, 1)
-        @test get_edge_EndpointRef(t, 1, 3) == EndpointRef(1, 2)
+        @test edge_eref(t, 1, 1) == EndpointRef(3, 2)
+        @test edge_eref(t, 1, 2) == EndpointRef(1, 1)
+        @test edge_eref(t, 1, 3) == EndpointRef(1, 2)
         # check that Endpoints are correct
-        @test (get_endpoint(t, EndpointRef(1, 1))).pos == 2  # shifted
-        @test (get_endpoint(t, EndpointRef(1, 2))).pos == 3  # shifted
+        @test (endpoint(t, EndpointRef(1, 1))).pos == 2  # shifted
+        @test (endpoint(t, EndpointRef(1, 2))).pos == 3  # shifted
     end
 
-    # _remove_edge_EndpointRef! — removes eref and shifts existing ones down
+    # _remove_edge_eref! — removes eref and shifts existing ones down
     let t = Tile(3)
         # cp1 has endpoints at positions 2 and 3 on edge 1, cp3 has an endpoint at pos 1 on edge 1
         t._curvepieces[1] = Curvepiece(1, 1, EdgeEndpoint(IN, 1, 2), EdgeEndpoint(OUT, 1, 3))
         t._curvepieces[3] = Curvepiece(3, 1, EdgeEndpoint(IN, 3, 1), EdgeEndpoint(OUT, 1, 1))
-        _insert_edge_EndpointRef!(t, EndpointRef(3, 2), 1, 1)
-        _insert_edge_EndpointRef!(t, EndpointRef(1, 1), 1, 2)
-        _insert_edge_EndpointRef!(t, EndpointRef(1, 2), 1, 3)
+        _insert_edge_eref!(t, EndpointRef(3, 2), 1, 1)
+        _insert_edge_eref!(t, EndpointRef(1, 1), 1, 2)
+        _insert_edge_eref!(t, EndpointRef(1, 2), 1, 3)
         # remove pos 1 on edge 1, shifting curvepiece 1's endpoints over
-        _remove_edge_EndpointRef!(t, 1, 1)
-        @test num_endpoints(t, 1) == 2
-        @test get_edge_EndpointRef(t, 1, 1) == EndpointRef(1, 1)
-        @test get_edge_EndpointRef(t, 1, 2) == EndpointRef(1, 2)
-        @test (get_endpoint(t, EndpointRef(1, 1))::EdgeEndpoint).pos == 1  # shifted
-        @test (get_endpoint(t, EndpointRef(1, 2))::EdgeEndpoint).pos == 2  # shifted
+        _remove_edge_eref!(t, 1, 1)
+        @test num_edge_erefs(t, 1) == 2
+        @test edge_eref(t, 1, 1) == EndpointRef(1, 1)
+        @test edge_eref(t, 1, 2) == EndpointRef(1, 2)
+        @test (endpoint(t, EndpointRef(1, 1))::EdgeEndpoint).pos == 1  # shifted
+        @test (endpoint(t, EndpointRef(1, 2))::EdgeEndpoint).pos == 2  # shifted
     end
 
-    # _push_anyon_EndpointRef! — valid pushes succeed; 3rd push throws
+    # _push_anyon_eref! — valid pushes succeed; 3rd push throws
     let t = Tile(3)
         t._curvepieces[1] = Curvepiece(1, 1, EdgeEndpoint(IN, 1, 1), AnyonEndpoint(IN))
         t._curvepieces[2] = Curvepiece(2, 1, AnyonEndpoint(OUT), EdgeEndpoint(OUT, 2, 1))
-        _push_anyon_EndpointRef!(t, EndpointRef(1, 2))
-        @test num_anyon_curvepieces(t) == 1
-        _push_anyon_EndpointRef!(t, EndpointRef(2, 1))
-        @test num_anyon_curvepieces(t) == 2
-        @test_throws ArgumentError _push_anyon_EndpointRef!(t, EndpointRef(3, 2)) # 3rd fails
+        _push_anyon_eref!(t, EndpointRef(1, 2))
+        @test num_anyon_erefs(t) == 1
+        _push_anyon_eref!(t, EndpointRef(2, 1))
+        @test num_anyon_erefs(t) == 2
+        @test_throws ArgumentError _push_anyon_eref!(t, EndpointRef(3, 2)) # 3rd fails
     end
 end
 
@@ -279,27 +384,27 @@ end
     let t = Tile(4)
         id = insert_curvepiece!(t, 10, 1, 1, 1, 3, 1)
         @test id == 1
-        cp = get_curvepiece(t, 1)
+        cp = curvepiece(t, 1)
         @test cp.curve_id == 10
         @test cp.anyon_count == 1
         @test cp.endpoint1 == EdgeEndpoint(IN, 1, 1)
         @test cp.endpoint2 == EdgeEndpoint(OUT, 3, 1)
-        @test get_edge_EndpointRef(t, 1, 1) == EndpointRef(1, 1)
-        @test get_edge_EndpointRef(t, 3, 1) == EndpointRef(1, 2)
+        @test edge_eref(t, 1, 1) == EndpointRef(1, 1)
+        @test edge_eref(t, 3, 1) == EndpointRef(1, 2)
     end
 
     # basic edge-to-anyon insertion: returns cp_id=1, creates correct curvepiece
     let t = Tile(4)
         id = insert_curvepiece!(t, 10, 1, 1, 1, IN)
         @test id == 1
-        @test num_anyon_curvepieces(t) == 1
+        @test num_anyon_erefs(t) == 1
         @test is_anyon_curvepiece(t, 1)
-        cp = get_curvepiece(t, 1)
+        cp = curvepiece(t, 1)
         @test cp.curve_id == 10
         @test cp.anyon_count == 1
         @test cp.endpoint1 == EdgeEndpoint(IN, 1, 1)
         @test cp.endpoint2 == AnyonEndpoint(IN)
-        @test get_edge_EndpointRef(t, 1, 1) == EndpointRef(1, 1)
+        @test edge_eref(t, 1, 1) == EndpointRef(1, 1)
     end
 
     # cp_id increments on successive insertions
@@ -316,21 +421,21 @@ end
     # same edge insertion, IN then OUT
     let t = Tile(4)
         id = insert_curvepiece!(t, 10, 1, 1, 1, 1, 2)
-        @test num_endpoints(t, 1) == 2
-        @test get_edge_EndpointRef(t, 1, 1) == EndpointRef(1, 1)  # IN endpoint
-        @test get_edge_EndpointRef(t, 1, 2) == EndpointRef(1, 2)  # OUT endpoint
-        @test (get_endpoint(t, EndpointRef(1, 1))::EdgeEndpoint).direction == IN
-        @test (get_endpoint(t, EndpointRef(1, 2))::EdgeEndpoint).direction == OUT
+        @test num_edge_erefs(t, 1) == 2
+        @test edge_eref(t, 1, 1) == EndpointRef(1, 1)  # IN endpoint
+        @test edge_eref(t, 1, 2) == EndpointRef(1, 2)  # OUT endpoint
+        @test (endpoint(t, EndpointRef(1, 1))::EdgeEndpoint).direction == IN
+        @test (endpoint(t, EndpointRef(1, 2))::EdgeEndpoint).direction == OUT
     end
 
     # same edge insertion, OUT then IN
     let t = Tile(4)
         id = insert_curvepiece!(t, 10, 1, 1, 1, 1, 1)
-        @test num_endpoints(t, 1) == 2
-        @test get_edge_EndpointRef(t, 1, 1) == EndpointRef(1, 2)  # OUT endpoint
-        @test get_edge_EndpointRef(t, 1, 2) == EndpointRef(1, 1)  # IN endpoint
-        @test (get_endpoint(t, get_edge_EndpointRef(t, 1, 1))::EdgeEndpoint).direction == OUT
-        @test (get_endpoint(t, get_edge_EndpointRef(t, 1, 2))::EdgeEndpoint).direction == IN
+        @test num_edge_erefs(t, 1) == 2
+        @test edge_eref(t, 1, 1) == EndpointRef(1, 2)  # OUT endpoint
+        @test edge_eref(t, 1, 2) == EndpointRef(1, 1)  # IN endpoint
+        @test (endpoint(t, edge_eref(t, 1, 1))::EdgeEndpoint).direction == OUT
+        @test (endpoint(t, edge_eref(t, 1, 2))::EdgeEndpoint).direction == IN
     end
 
     # inserting two curvepieces on the same edge shifts positions correctly
@@ -338,12 +443,12 @@ end
         # insert two nested curvepieces, both with the same IN endpoint location
         insert_curvepiece!(t, 10, 1, 1, 1, 2, 1)
         insert_curvepiece!(t, 20, 1, 1, 1, 3, 1)
-        @test num_endpoints(t, 1) == 2
+        @test num_edge_erefs(t, 1) == 2
         # cp2 IN is at pos 1, old cp1 IN shifted to pos 2
-        @test get_edge_EndpointRef(t, 1, 1) == EndpointRef(2, 1)
-        @test get_edge_EndpointRef(t, 1, 2) == EndpointRef(1, 1)
+        @test edge_eref(t, 1, 1) == EndpointRef(2, 1)
+        @test edge_eref(t, 1, 2) == EndpointRef(1, 1)
         # cp1's stored endpoint1 position should be updated
-        @test (get_endpoint(t, EndpointRef(1, 1))::EdgeEndpoint).pos == 2
+        @test (endpoint(t, EndpointRef(1, 1))::EdgeEndpoint).pos == 2
     end
 
     # inserting a curvepiece which splits an existing curvepiece's endpoints throws error
@@ -356,7 +461,7 @@ end
     let t = Tile(4)
         insert_curvepiece!(t, 10, 1, 1, 1, IN)
         insert_curvepiece!(t, 10, 2, 3, 1, OUT)
-        @test num_anyon_curvepieces(t) == 2
+        @test num_anyon_erefs(t) == 2
         @test is_anyon_curvepiece(t, 2)
     end
 
@@ -408,19 +513,19 @@ end
         # make sure curvepiece was removed correctly
         remove_curvepiece!(t, id1)
         @test curvepiece_ids(t) == [id2]
-        @test num_endpoints(t, 1) == 1
-        @test num_endpoints(t, 3) == 0
+        @test num_edge_erefs(t, 1) == 1
+        @test num_edge_erefs(t, 3) == 0
         # remaining endpoint and eref positions are correct
-        @test (get_endpoint(t, EndpointRef(id2, 1))::EdgeEndpoint).pos == 1
-        @test get_edge_EndpointRef(t, 1, 1) == EndpointRef(id2, 1)
+        @test (endpoint(t, EndpointRef(id2, 1))::EdgeEndpoint).pos == 1
+        @test edge_eref(t, 1, 1) == EndpointRef(id2, 1)
     end
 
     # removing an edge-to-anyon curvepiece
     let t = Tile(4)
         id = insert_curvepiece!(t, 10, 1, 1, 1, IN)
-        @test num_anyon_curvepieces(t) == 1
+        @test num_anyon_erefs(t) == 1
         remove_curvepiece!(t, id)
-        @test num_anyon_curvepieces(t) == 0
+        @test num_anyon_erefs(t) == 0
         @test isempty(curvepiece_ids(t))
     end
 
@@ -429,7 +534,7 @@ end
         id1 = insert_curvepiece!(t, 10, 1, 1, 1, IN)
         id2 = insert_curvepiece!(t, 10, 2, 3, 1, OUT)
         remove_curvepiece!(t, id1)
-        @test num_anyon_curvepieces(t) == 1
+        @test num_anyon_erefs(t) == 1
         @test is_anyon_curvepiece(t, id2)
     end
 
@@ -438,12 +543,12 @@ end
         id = insert_curvepiece!(t, 10, 1, 1, 1, 3, 1)
         eref = EndpointRef(id, 1) # IN endpoint
         move_endpoint!(t, eref, 2, 1)
-        ep = get_endpoint(t, eref)::EdgeEndpoint
+        ep = endpoint(t, eref)::EdgeEndpoint
         @test ep.edge == 2 && ep.pos == 1
-        @test num_endpoints(t, 1) == 0
-        @test num_endpoints(t, 2) == 1
-        @test num_endpoints(t, 3) == 1
-        @test get_edge_EndpointRef(t, 2, 1) == eref
+        @test num_edge_erefs(t, 1) == 0
+        @test num_edge_erefs(t, 2) == 1
+        @test num_edge_erefs(t, 3) == 1
+        @test edge_eref(t, 2, 1) == eref
     end
 
     # move forward on same edge
@@ -452,12 +557,12 @@ end
         id2 = insert_curvepiece!(t, 20, 1, 1, 2, 2, 1)
         eref = EndpointRef(id1, 1)
         move_endpoint!(t, eref, 2, 2) # move cp1
-        @test num_endpoints(t, 1) == 1
-        @test num_endpoints(t, 2) == 2
-        @test num_endpoints(t, 3) == 1
-        @test get_edge_EndpointRef(t, 1, 1) == EndpointRef(id2, 1)
-        @test get_edge_EndpointRef(t, 2, 2) == EndpointRef(id1, 1)
-        ep = get_endpoint(t, eref)::EdgeEndpoint
+        @test num_edge_erefs(t, 1) == 1
+        @test num_edge_erefs(t, 2) == 2
+        @test num_edge_erefs(t, 3) == 1
+        @test edge_eref(t, 1, 1) == EndpointRef(id2, 1)
+        @test edge_eref(t, 2, 2) == EndpointRef(id1, 1)
+        ep = endpoint(t, eref)::EdgeEndpoint
         @test ep.edge == 2
         @test ep.pos == 2
     end
@@ -468,9 +573,9 @@ end
         id2 = insert_curvepiece!(t, 20, 1, 1, 3, 2, 1)
         eref = EndpointRef(id2, 1)
         move_endpoint!(t, eref, 1, 1)
-        @test get_edge_EndpointRef(t, 1, 1) == EndpointRef(id2, 1)
-        @test get_edge_EndpointRef(t, 1, 2) == EndpointRef(id1, 1)
-        ep = get_endpoint(t, eref)::EdgeEndpoint
+        @test edge_eref(t, 1, 1) == EndpointRef(id2, 1)
+        @test edge_eref(t, 1, 2) == EndpointRef(id1, 1)
+        ep = endpoint(t, eref)::EdgeEndpoint
         @test ep.edge == 1
         @test ep.pos == 1
     end
@@ -501,7 +606,7 @@ end
     let t = Tile(4)
         id = insert_curvepiece!(t, 10, 1, 1, 1, 3, 1)
         set_curvepiece_metadata!(t, id, 20, 2)
-        cp = get_curvepiece(t, id)
+        cp = curvepiece(t, id)
         @test cp.curve_id == 20
         @test cp.anyon_count == 2
         # endpoints unchanged

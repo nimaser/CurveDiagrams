@@ -214,13 +214,34 @@ function _radial_bezier_control_points(
     p0, p1, p2, p3
 end
 
-function anyon_curvepiece(intersection, edge_p1, edge_p2, center, sharpness, n=20):
-    t_edge = edge_normal(edge_p1, edge_p2, center)
-    p0 = intersection
+"""
+Generate the points used to plot an edge-to-anyon curvepiece. The plot consists of one
+cubic Bezier traveling from an edge of the tile ot the center of it. The control points
+are chosen so that the curve intersects the edge of the tile perpendicularly (so that
+the connections between corresponding curvepieces in adjacent tiles are continuous and
+smooth).
+
+This function is purely geometric, in the sense that it accepts as inputs points and
+parameters and returns a list of `Point2`s to be used to plot the curvepiece. The
+information the function accepts is, in brief:
+- `p` the position of the curvepiece endpoint on its edge
+- `e1` and `e2` the positions of the endpoints of that aforementioned edge
+- `center` the position of the center of the tile
+- `sharpness` how sharply the Bezier curve corners should be
+- `point_density` the point sampling density
+"""
+function _edge_to_anyon_curvepiece_points(
+    p::Point2, e1::Point2, e2::Point2,intersection,
+    center::Point2, sharpness::Real;
+    point_density::Real=5
+)
+    edge_normal = _normal_towards(e1, e2, center)
+    p0 = p
     p3 = center
-    p1 = p0 + sharpness * t_edge
-    p2 = p3  # free; pulling toward center directly is fine
-    return sample_bezier(p0, p1, p2, p3, n)
+    p1 = p0 + sharpness * edge_normal
+    p2 = p3 # degenerate control point pulls curve directly to center
+    _sample_bezier(p0, p1, p2, p3; point_density=point_density)
+end
 
 ### ENDPOINT POSITION HELPERS ###
 
@@ -251,100 +272,6 @@ function _anyon_curvepiece_edge_angle(t::Tile, v::Vector{<:Point2})
 end
 
 ### CONTROL POINT POSITION HELPERS ###
-
-"""
-Calculates the hierarchy number and max enclosing hierarchy number for each edge-to-edge
-curve piece, returning a `Dict{Int, Tuple{Int, Int}}` that maps curvepiece ids to a tuple
-of this information.
-
-Edge-to-edge curvepieces in a tile may be nested 'inside' each other, in the sense that
-their endpoints may enclose both endpoints of another curvepiece. In other words, each
-edge-to-edge curvepiece partitions the tile into two parts, and all other edge-to-edge
-curvepieces will lay inside one of those parts. The 'hierarchy number' of an edge-to-edge
-curvepiece is the number of nested layers of edge-to-edge curvepieces enclosed within it.
-
-Because the endpoints live on a circle, there are two ways to do this assignment, depending
-on which part of the partition you consider "inside" vs "outside" for any particular
-curvepiece. In the extreme case, two endpoints which are directly adjacent could either be
-said to enclose all other curvepieces, or no other curvepieces.
-
-We choose to assign hierarchy numbers in a way that is globally self-consistent for all
-curvepieces within a tile and loosely speaking minimizes the hierarchy numbers assigned
-across all curvepieces in the tile. To do this, we start by assigning all curvepieces with
-adjacent endpoints a hierarchy number of 1, then remove their endpoints from consideration
-when calculating adjacency. We then do this scan again, this time assigning curvepieces
-with adjacent endpoints a hierarchy number of 2. We continue till all edge-to-edge
-endpoints are assigned.
-
-Because of this, hierarchy numbers tend to 'meet in the middle' of the tile, and the
-assignments may depend on which endpoint around the tile the adjacency scans are started.
-
-The maximum enclosing hierarchy number for a curvepiece is the largest hierarchy number of
-any curvepiece which encloses it.
-"""
-function _calculate_hierarchy(t::Tile)
-    # get all edge-to-edge curvepiece ids
-    ee_ids = Set(
-        cp_id for cp_id in curvepiece_ids(t)
-        if let cp = curvepiece(t, cp_id)
-            cp.endpoint1 isa EdgeEndpoint && cp.endpoint2 isa EdgeEndpoint
-        end
-    )
-
-    # get ordered list of all endpointrefs on the edges, including anyon-to-edge ones
-    # (anyon-to-edge endpoints are kept in to preserve the positional barriers they form
-    # between ee endpoints on opposite sides of the anyon radial line)
-    edge_erefs = edge_erefs(t)
-    n = length(edge_erefs)
-
-    # track hierarchy assignment per endpoint or curvepiece
-    assigned = falses(n)                                # mask for if endpoint has a hierarchy number
-    hier     = Dict{Int,Int}()                          # hierarchy number
-    max_enc  = Dict{Int,Int}(id => -1 for id in ee_ids) # max enclosing hierarchy number
-
-    # rounds of assigning hierarchy numbers
-    round = 1
-    while true
-        # list of edge-to-edge endpoints lacking an assigned hierarchy number
-        # (anyon-to-edge endpoints are excluded from assignment but remain in edge_erefs as barriers)
-        unassigned = [(i, edge_erefs[i]) for i in 1:n if !assigned[i] && edge_erefs[i].cp_id ∈ ee_ids]
-        isempty(unassigned) && break # we're done, all assigned
-
-        # we'll scan through the initially unassigned endpoints, assigning consecutive pairs
-        m = length(unassigned)
-        consumed        = falses(m) # if we assigned this initially unassigned endpoint during this round
-        newly_assigned  = Int[]     # endpoints which were assigned this round
-
-        for k in 1:m
-            # skip if we already assigned this or the next k value
-            consumed[k] && continue
-            nk = mod1(k + 1, m)
-            consumed[nk] && continue
-            # if the two consecutive unassigned endpoints are not on the same curvepiece, skip
-            orig_i, eref_i = unassigned[k]
-            orig_j, eref_j = unassigned[nk]
-            eref_i.cp_id == eref_j.cp_id || continue
-            # set the hierarchy number for this curvepiece
-            hier[eref_i.cp_id] = round
-            # indices between orig_i and orig_j going clockwise, with wraparound
-            between = orig_i < orig_j ? ((orig_i + 1):(orig_j - 1)) :
-                                        Iterators.flatten(((orig_i + 1):n, 1:(orig_j - 1)))
-            # set the max hierarchy number for all entries between the ones just assigned
-            for b in between
-                bid = edge_erefs[b].cp_id
-                if haskey(hier, bid) max_enc[bid] = round end
-            end
-            # mark these two as assigned
-            consumed[k] = consumed[nk] = true
-            push!(newly_assigned, orig_i, orig_j)
-        end
-
-        for i in newly_assigned; assigned[i] = true; end
-        round += 1
-    end
-
-    Dict(id => (hier[id], max_enc[id]) for id in ee_ids)
-end
 
 """
 Computes the quadratic Bézier control point for an edge-to-edge curvepiece given its two
