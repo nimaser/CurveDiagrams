@@ -274,7 +274,7 @@ end
         t._curvepieces[4] = Curvepiece(4, 1, EdgeEndpoint(IN, 1, 4), EdgeEndpoint(OUT, 1, 5))  # D
         t._curvepieces[5] = Curvepiece(5, 1, EdgeEndpoint(IN, 1, 6), AnyonEndpoint(IN))        # E
         t._curvepieces[6] = Curvepiece(6, 1, EdgeEndpoint(IN, 2, 1), EdgeEndpoint(OUT, 2, 2))  # F
-        t._curvepieces[7] = Curvepiece(7, 1, EdgeEndpoint(IN, 2, 3), AnyonEndpoint(IN))        # G
+        t._curvepieces[7] = Curvepiece(5, 1, EdgeEndpoint(IN, 2, 3), AnyonEndpoint(IN))        # G
         t._curvepieces[8] = Curvepiece(8, 1, EdgeEndpoint(IN, 3, 2), EdgeEndpoint(OUT, 3, 3))  # H
         push!(t._edge_endpoints[1], EndpointRef(1, 1))  # A.endpoint1
         push!(t._edge_endpoints[1], EndpointRef(2, 1))  # B.endpoint1

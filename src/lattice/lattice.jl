@@ -65,7 +65,11 @@ struct Lattice
     end
 end
 
-### PUBLIC GETTERS ###
+###############################################################################
+# PUBLIC GETTERS
+###############################################################################
+
+### GEOMETRY ###
 
 """Returns the number of tiles in the lattice."""
 num_tiles(l::Lattice) = length(l._tiles)
@@ -87,6 +91,8 @@ function shared_edge(l::Lattice, tile_id1::Int, tile_id2::Int)
     nothing
 end
 
+### CURVE DIAGRAMS ###
+
 """
 Returns the number of allocated curve ids, including ids for deleted (empty) curve diagrams.
 Use `curve_ids(l)` to get only active curves.
@@ -104,6 +110,8 @@ A deleted curve diagram has had its `CurvepieceRef`s removed and its id permanen
 A deleted id will never be reallocated by `_allocate_curve_id!`.
 """
 is_deleted(l::Lattice, curve_id::Int) = isempty(l._curvediagrams[curve_id])
+
+### ENDPOINTS ###
 
 """
 Curvepieces can only start or end at anyons, so being made up of curvepieces, any `CurveDiagram`
@@ -130,25 +138,42 @@ on either side of the edge. SO the sibling insertion must be done at sibling_pos
 function sibling_location(l::Lattice, tile_id::Int, edge::Int, n::Int)
     cedge = corresponding_edge(l, tile_id, edge)
     neighbortile = get_tile(l, cedge.tile_id)
-    N = num_endpoints(neighbortile, cedge.edge)
+    N = num_edge_erefs(neighbortile, cedge.edge)
     sibling_pos = N - n + 1
     cedge.tile_id, cedge.edge, sibling_pos
+end
+
+"""
+Return the insertion position on the corresponding edge for the sibling of a new endpoint
+being inserted at position `pos` on `(tile_id, edge)`. Call this before inserting on
+side 1, and use the result as `pos` when inserting the sibling endpoint on side 2.
+"""
+function sibling_insert_pos(l::Lattice, tile_id::Int, edge::Int, pos::Int)
+    _, _, spos = sibling_location(l, tile_id, edge, pos)
+    spos + 1
 end
 
 """
 Given an edge endpoint in `tile_id`, this function returns `(neighbor_tile_id, EndpointRef)` of its
 sibling endpoint, using `sibling_location` internally.
 """
-function sibling_EndpointRef(l::Lattice, tile_id::Int, eref::EndpointRef)
-    ep::EdgeEndpoint = get_endpoint(get_tile(l, tile_id), eref)
+function sibling_eref(l::Lattice, tile_id::Int, eref::EndpointRef)
+    ep::EdgeEndpoint = endpoint(get_tile(l, tile_id), eref)
     neighbor_tile_id, neighbor_edge, neighbor_pos = sibling_location(l, tile_id, ep.edge, ep.pos)
     neighbortile = get_tile(l, neighbor_tile_id)
-    neighbor_tile_id, get_edge_EndpointRef(neighbortile, neighbor_edge, neighbor_pos)
+    neighbor_tile_id, edge_eref(neighbortile, neighbor_edge, neighbor_pos)
 end
 
-"""Returns a `Vector{EndpointRef}` with an or all curvepieces in `tile_id` with an endpoint on `edge`."""
-# curvepieces_on_edge(l::Lattice, tile_id::Int, edge::Int) =
-#     get_edge_EndpointRefs(get_tile(l, tile_id), edge)
+### CURVEPIECES ###
+
+"""
+Returns the 1-based index in the curve diagram where `CurvepieceRef(tile_id, cp_id)` appears,
+or `nothing` if not found.
+"""
+function find_cref_index(l::Lattice, curve_id::Int, tile_id::Int, cp_id::Int)
+    target = CurvepieceRef(tile_id, cp_id)
+    findfirst(==(target), l._curvediagrams[curve_id])
+end
 
 """
 Returns the tile and curvepiece ids for the curvepiece which precedes `cp_id` in its
@@ -168,13 +193,13 @@ the start of its curve).
 """
 function prev_curvepiece(l::Lattice, tile_id::Int, cp_id::Int)
     t = get_tile(l, tile_id)
-    cp = get_curvepiece(t, cp_id)
+    cp = curvepiece(t, cp_id)
     if cp.endpoint1 isa AnyonEndpoint
-        partner = get_partner_cp_id(t, cp_id)
+        partner = partner_cp_id(t, cp_id)
         partner === nothing && return nothing
         return tile_id, partner
     end
-    neighbor_tile_id, neighbor_eref = sibling_EndpointRef(l, tile_id, EndpointRef(cp_id, 1))
+    neighbor_tile_id, neighbor_eref = sibling_eref(l, tile_id, EndpointRef(cp_id, 1))
     neighbor_tile_id, neighbor_eref.cp_id
 end
 
@@ -196,34 +221,17 @@ the end of its curve).
 """
 function next_curvepiece(l::Lattice, tile_id::Int, cp_id::Int)
     t = get_tile(l, tile_id)
-    cp = get_curvepiece(t, cp_id)
+    cp = curvepiece(t, cp_id)
     if cp.endpoint2 isa AnyonEndpoint
-        partner = get_partner_cp_id(t, cp_id)
+        partner = partner_cp_id(t, cp_id)
         partner === nothing && return nothing
         return tile_id, partner
     end
-    neighbor_tile_id, neighbor_eref = sibling_EndpointRef(l, tile_id, EndpointRef(cp_id, 2))
+    neighbor_tile_id, neighbor_eref = sibling_eref(l, tile_id, EndpointRef(cp_id, 2))
     neighbor_tile_id, neighbor_eref.cp_id
 end
 
-"""
-Returns the 1-based position in the curve diagram where `CurvepieceRef(tile_id, cp_id)` appears,
-or `nothing` if not found.
-"""
-function find_curve_position(l::Lattice, curve_id::Int, tile_id::Int, cp_id::Int)
-    target = CurvepieceRef(tile_id, cp_id)
-    findfirst(==(target), l._curvediagrams[curve_id])
-end
-
-
-"""
-Returns the `curve_id` of the curve diagram which contains the anyon of the tile
-with id `tile_id`. Returns nothing if that tile's anyon is not on any curve diagram.
-"""
-function anyon_curve_id(l::Lattice, tile_id::Int)
-    t = get_tile(l, tile_id)
-    anyon_curve_id(t)
-end
+### ANYONS ###
 
 """
 Function to get the tiles which contain anyons on a specific curve.
@@ -253,12 +261,13 @@ Returns `nothing` if this is the last anyon on its curve diagram.
 Throws an error if `tile_id`s anyon is not on a curve diagram.
 """
 function next_anyon(l::Lattice, tile_id::Int)
-    curve_id = anyon_curve_id(l, tile_id)
+    curve_id = anyon_curve_id(get_tile(l, tile_id))
     curve_id === nothing && throw(ArgumentError("tile $tile_id's anyon not on a curve diagram"))
     tiles = anyon_tiles(l, curve_id)
     idx = findfirst(==(tile_id), tiles)
     idx == length(tiles) ? nothing : tiles[idx + 1]
 end
+
 """
 Returns the id of the tile whose anyon is just before `tile_id`s anyon on its curve diagram.
 
@@ -266,14 +275,16 @@ Returns `nothing` if this is the first anyon on its curve diagram.
 Throws an error if `tile_id`s anyon is not on a curve diagram.
 """
 function prev_anyon(l::Lattice, tile_id::Int)
-    curve_id = anyon_curve_id(l, tile_id)
+    curve_id = anyon_curve_id(get_tile(l, tile_id))
     curve_id === nothing && throw(ArgumentError("tile $tile_id's anyon not on a curve diagram"))
     tiles = anyon_tiles(l, curve_id)
     idx = findfirst(==(tile_id), tiles)
     idx == 1 ? nothing : tiles[idx - 1]
 end
 
-### INTERNAL MUTATORS ###
+###############################################################################
+# INTERNAL MUTATORS
+###############################################################################
 
 """Returns the next curve_id to be assigned."""
 function _allocate_curve_id!(l::Lattice)
@@ -281,17 +292,13 @@ function _allocate_curve_id!(l::Lattice)
     length(l._curvediagrams)
 end
 
-"""
-Inserts `ref` at position `pos` in the curve diagram with id `curve_id`.
-"""
-function _insert_CurvepieceRef!(l::Lattice, curve_id::Int, pos::Int, ref::CurvepieceRef)
+"""Inserts `ref` at position `pos` in the curve diagram with id `curve_id`."""
+function _insert_cref!(l::Lattice, curve_id::Int, pos::Int, ref::CurvepieceRef)
     insert!(l._curvediagrams[curve_id], pos, ref)
 end
 
-"""
-Removes the entry at position `pos` from the curve diagram with id `curve_id`.
-"""
-function _remove_CurvepieceRef!(l::Lattice, curve_id::Int, pos::Int)
+"""Removes the entry at position `pos` from the curve diagram with id `curve_id`."""
+function _remove_cref!(l::Lattice, curve_id::Int, pos::Int)
     deleteat!(l._curvediagrams[curve_id], pos)
 end
 
@@ -305,7 +312,7 @@ function _shift_anyon_count!(l::Lattice, curve_id::Int, from_pos::Int, delta::In
     for pos in from_pos:length(diagram)
         ref = diagram[pos]
         t = get_tile(l, ref.tile_id)
-        cp = get_curvepiece(t, ref.cp_id)
+        cp = curvepiece(t, ref.cp_id)
         set_curvepiece_metadata!(t, ref.cp_id, cp.curve_id, cp.anyon_count + delta)
     end
 end
@@ -328,7 +335,7 @@ separately.
 function _relabel_curve!(l::Lattice, old_curve_id::Int, new_curve_id::Int)
     for ref in l._curvediagrams[new_curve_id]
         t = get_tile(l, ref.tile_id)
-        cp = get_curvepiece(t, ref.cp_id)
+        cp = curvepiece(t, ref.cp_id)
         cp.curve_id == old_curve_id || continue
         set_curvepiece_metadata!(t, ref.cp_id, new_curve_id, cp.anyon_count)
     end
