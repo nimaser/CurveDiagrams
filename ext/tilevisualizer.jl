@@ -67,7 +67,7 @@ end
 @inline _edge_endpoints(v::Vector{<:Point2}, edge::Int) = (v[edge], v[mod1(edge + 1, length(v))])
 
 """Returns a point `n/(N+1)` of the way along edge `edge` of polygon `v`, moving clockwise."""
-function _point_along_edge(v::Vector{<:Point2}, edge::Int, n::Int, N::Int)
+@inline function _point_along_edge(v::Vector{<:Point2}, edge::Int, n::Int, N::Int)
     e1, e2 = _edge_endpoints(v, edge)
     _point_along_vector(e1, e2, n / (N+1))
 end
@@ -75,7 +75,20 @@ end
 """Returns the center of polygon `v`, computed as the average of its vertices."""
 @inline _polygon_center(v::Vector{<:Point2}) = sum(v) / length(v)
 
-### CURVEPIECE DRAWING HELPERS ###
+"""Returns the inradius of polygon `v` with center `center`: the minimum distance from `center` to any edge."""
+@inline function _polygon_inradius(v::Vector{<:Point2}, center::Point2)
+    minimum(
+        let (e1, e2) = _edge_endpoints(v, edge)
+            edge_vec = e2 - e1
+            center_vec = center - e1
+            # cross product gives parallelogram area, dividing by base gives height, which is min dist to edge
+            abs(cross(edge_vec, center_vec)) / norm(edge_vec)
+        end
+        for edge in 1:length(v)
+    )
+end
+
+### CURVEPIECE PLOTTING HELPERS ###
 
 """
 Sample the Bezier curve parameterized by `p0`, `p1`, `p2`, and `p3` from `t=0` to `t=1`.
@@ -87,7 +100,7 @@ curves get more points and the visual density of samples stays roughly constant.
 To make sure small curves are drawn, at minimum `min_points` points are sampled.
 """
 function _sample_bezier(p0::Point2, p1::Point2, p2::Point2, p3::Point2;
-    point_density::Real=5, min_points::Int=5
+    point_density::Real, min_points::Int=5
 )
     n = max(min_points, round(Int, point_density * norm(p3 - p0)))
     bezier(p0, p1, p2, p3, t) = (1-t)^3*p0 + 3(1-t)^2*t*p1 + 3(1-t)*t^2*p2 + t^3*p3
@@ -107,12 +120,14 @@ points and the visual density of samples stays roughly constant.
 To make sure small curves are drawn, at minimum `min_points` points are sampled.
 """
 function _sample_arc(center::Point2, radius::Real, angle1::Real, angle2::Real, ccw::Bool;
-    point_density::Real=5, min_points::Int=5
+    point_density::Real, min_points::Int=5
 )
-    a1, a2 = _normalize_angle(angle1), _normalize_angle(angle2)
-    angular_distance = ccw ? _normalize_angle(a2 - a1) : _normalize_angle(a1 - a2)
+    angular_distance = ccw ? _normalize_angle(angle2 - angle1) : _normalize_angle(angle1 - angle2)
     arc_length = angular_distance * radius
     n = max(min_points, round(Int, point_density * arc_length))
+    # derive a2 from a1 ± angular_distance so range always steps in the correct direction
+    a1 = _normalize_angle(angle1)
+    a2 = ccw ? a1 + angular_distance : a1 - angular_distance
     angles = range(a1, a2, n)
     [center + radius * Point2(cos(θ), sin(θ)) for θ in angles]
 end
@@ -151,7 +166,7 @@ function _edge_to_edge_curvepiece_points(
     radius::Real,
     ccw::Bool,
     sharpness::Real;
-    point_density::Real=5
+    point_density::Real=30
 )
     # get Bezier control points
     incoming_bezier_control_points = _radial_bezier_control_points(p1, p1_e1, p1_e2, center, radius, ccw, sharpness, :incoming)
@@ -197,17 +212,21 @@ function _radial_bezier_control_points(
     edge_normal = _normal_towards(e1, e2, center)
     connection_point = _point_along_vector(center, p, radius)
     connection_tangent = _circle_tangent(center, connection_point; ccw=ccw)
+    # scale control point offset by chord length so sharpness is geometry-independent;
+    # sharpness=0 → straight line (no offset), sharpness=1 → offset equals full chord length
+    chord = norm(connection_point - p)
+    s = sharpness * chord
 
     if direction === :incoming
         p0 = p
         p3 = connection_point
-        p1 = p0 + sharpness * edge_normal
-        p2 = p3 - sharpness * connection_tangent
+        p1 = p0 + s * edge_normal # ctrl point should be in the tile
+        p2 = p3 - s * connection_tangent
     elseif direction === :outgoing
         p0 = connection_point
         p3 = p
-        p1 = p0 + sharpness * connection_tangent
-        p2 = p3 - sharpness * edge_normal
+        p1 = p0 + s * connection_tangent
+        p2 = p3 + s * edge_normal # ctrl point should be in the tile
     else
         throw(ArgumentError("direction must be either :incoming or :outgoing, got $direction"))
     end
@@ -231,19 +250,23 @@ information the function accepts is, in brief:
 - `point_density` the point sampling density
 """
 function _edge_to_anyon_curvepiece_points(
-    p::Point2, e1::Point2, e2::Point2,intersection,
+    p::Point2, e1::Point2, e2::Point2,
     center::Point2, sharpness::Real;
-    point_density::Real=5
+    point_density::Real=30
 )
     edge_normal = _normal_towards(e1, e2, center)
     p0 = p
     p3 = center
-    p1 = p0 + sharpness * edge_normal
+    # scale control point offset by chord length so sharpness is geometry-independent;
+    # sharpness=0 → straight line (no offset), sharpness=1 → offset equals full chord length
+    chord = norm(p3 - p0)
+    s = sharpness * chord
+    p1 = p0 + s * edge_normal
     p2 = p3 # degenerate control point pulls curve directly to center
     _sample_bezier(p0, p1, p2, p3; point_density=point_density)
 end
 
-### ENDPOINT POSITION HELPERS ###
+### MISC HELPERS ###
 
 """
 Returns the spatial position of the endpoint pointed to by `eref` in tile `t` with vertices `v`.
@@ -251,97 +274,36 @@ Returns the spatial position of the endpoint pointed to by `eref` in tile `t` wi
 Edge endpoints are placed `n/(N+1)` of the way along their edge, where `n` is the endpoint's `pos`
 and `N` is the total number of endpoints on that edge. Anyon endpoints are at the tile center.
 """
-function _endpoint_point(t::Tile, v::Vector{<:Point2}, eref::EndpointRef)
+function _endpoint_position(t::Tile, v::Vector{<:Point2}, eref::EndpointRef)
     ep = endpoint(t, eref)
-    ep isa AnyonEndpoint ? _tile_center(v) : _point_along_edge(v, ep.edge, ep.pos, num_edge_erefs(t, ep.edge))
+    ep isa AnyonEndpoint ? _polygon_center(v) : _point_along_edge(v, ep.edge, ep.pos, num_edge_erefs(t, ep.edge))
 end
 
 """
-Returns the polar angle (relative to the tile center) of the edge endpoint of an anyon curvepiece in `t`.
+Returns the polar angle (relative to `center`) of the edge endpoint of one of tile `t`'s anyon
+curvepieces, given it has vertices `v`. Returns `nothing` if `t` has no anyon curvepieces.
 
-This angle is used as `r` in `_midpoint_angle` so that edge-to-edge curvepiece
-control points are placed to avoid the radial line formed by the anyon curvepiece.
-Throws an error if `t` has no anyon curvepieces.
+This angle is used as an avoidance angle when determining arc traversal direction for edge-to-edge
+curvepieces, so that their arcs do not cross the anyon radial line.
 """
-function _anyon_curvepiece_edge_angle(t::Tile, v::Vector{<:Point2})
-    num_anyon_erefs(t) > 0 || throw(ArgumentError("tile has no anyon curvepieces"))
-    anyon_eref = first(anyon_erefs(t))
-    edge_eref = cp_partner(anyon_eref)
-    edge_point = _endpoint_point(t, v, edge_eref)
-    _polar_angle(edge_point, _tile_center(v))
-end
-
-### CONTROL POINT POSITION HELPERS ###
-
-"""
-Computes the quadratic Bézier control point for an edge-to-edge curvepiece given its two
-endpoint positions, the tile center, hierarchy data, and the distance from the tile center
-to the polygon boundary in the control point's direction.
-
-The control point lies at angle `_midpoint_angle(a1, a2, r)` — where `a1`, `a2` are the
-angles of `p1`, `p2` relative to `center`, and `r` is an optional avoidance angle — and
-at radial distance `max_r * (max_h - h + 1) / max_h` from `center`, so that higher-hierarchy
-(more enclosing) curvepieces have their control points closer to the center.
-"""
-function _ee_control_point(p1::Point2, p2::Point2, center::Point2,
-                           h::Int, max_h::Int, max_r::Real,
-                           r::Union{Real,Nothing}=nothing)
-    angle = _midpoint_angle(_polar_angle(p1, center), _polar_angle(p2, center), r)
-    dist  = max_r * (max_h - h + 1) / (max_h + 1)
-    center + dist * Point2f(cos(angle), sin(angle))
-end
-
-### BEZIER PATH BUILDERS ###
-
-"""
-Returns a quadratic Bézier path for curvepiece `cp_id` in tile `t` with vertices `v`.
-
-`h_dict` is the output of `_calculate_hierarchy(t)`. `max_h` is the maximum hierarchy value
-across all edge-to-edge curvepieces. `avoidance_angle` is the angle of the anyon curvepiece
-edge endpoint (or `nothing` if the tile has no anyon curvepieces).
-
-For edge-to-edge curvepieces, the control point angle is computed first, then the distance
-to the polygon boundary in that direction is used as the radial scale for `_ee_control_point`.
-For edge-to-anyon curvepieces, the control point is the midpoint between the edge endpoint
-position and the tile center.
-
-Because GLMakie requires cubic Bezier curves for plotting, we insert the control point twice.
-"""
-function _cp_bezier_path(t::Tile, v::Vector{<:Point2}, cp_id::Int,
-                         h_dict::Dict{Int,Tuple{Int,Int}}, max_h::Int,
-                         avoidance_angle::Union{Real,Nothing})
-    center = _tile_center(v)
-    p1 = _endpoint_point(t, v, EndpointRef(cp_id, 1))
-    p2 = _endpoint_point(t, v, EndpointRef(cp_id, 2))
-
-    ctrl = if haskey(h_dict, cp_id)
-        # edge-to-edge: angle first, then boundary distance in that direction
-        h = first(h_dict[cp_id])
-        ctrl_angle = _midpoint_angle(_polar_angle(p1, center), _polar_angle(p2, center),
-                                     avoidance_angle)
-        max_r = _ray_to_boundary_dist(center, ctrl_angle, v)
-        _ee_control_point(p1, p2, center, h, max_h, max_r, avoidance_angle)
-    else
-        # edge-to-anyon: midpoint between edge endpoint and tile center
-        cp = curvepiece(t, cp_id)
-        edge_p = cp.endpoint1 isa EdgeEndpoint ? p1 : p2
-        (edge_p + center) / 2
-    end
-
-    BezierPath([MoveTo(p1), CurveTo(ctrl, ctrl, p2)])
+function _anyon_avoid_angle(t::Tile, v::Vector{<:Point2}, center::Point2)
+    num_anyon_erefs(t) == 0 && return nothing
+    a_eref  = first(anyon_erefs(t))
+    p_avoid = _endpoint_position(t, v, cp_partner(a_eref))
+    _polar_angle(p_avoid, center)
 end
 
 """
-Returns a vector of Bézier paths, one per curvepiece in `t`, given polygon vertices `v`.
+Given a curvepiece's `nesting` number and `max_enc`, its maximum enclosing number in the nesting hierarchy
+determined by `calculate_nesting_hierarchy`, and a `max_radius` value which should be constant for any given
+tile (across curvepieces that is), return the radius at which an edge-to-edge curvepiece's circular plot
+section should travel around the tile center.
 
-Precomputes the hierarchy dict, global max hierarchy, and anyon avoidance angle once,
-then delegates to `_cp_bezier_path` for each curvepiece.
+As `1 <= nesting <= max_enc`, as `nesting` grows, the radius gets smaller as the arc travels closer to the
+tile's center.
 """
-function _curvepiece_paths(t::Tile, v::Vector{<:Point2})
-    h_dict = _calculate_hierarchy(t)
-    max_h  = isempty(h_dict) ? 1 : maximum(first(tup) for tup in values(h_dict))
-    avoidance_angle = num_anyon_erefs(t) > 0 ? _anyon_curvepiece_edge_angle(t, v) : nothing
-    [_cp_bezier_path(t, v, cp_id, h_dict, max_h, avoidance_angle) for cp_id in curvepiece_ids(t)]
+function _curvepiece_radius(nesting::Int, max_enc::Int, max_radius::Real)
+    max_radius * (1 - (nesting / (max_enc + 1)))
 end
 
 ### PUBLIC API ###
@@ -349,64 +311,68 @@ end
 """
 Draws tile `t` onto `ax` with convex polygon vertices `v` (one vertex per edge, clockwise).
 
-Each curvepiece is drawn as a Bézier curve with a direction arrow at its midpoint and an
-inspector label readable via `DataInspector`. Throws if `length(v) != num_edges(t)`.
+Each curvepiece is plotted as a sequence of points, obtained from `_edge_to_edge_curvepiece_points`
+and `_edge_to_anyon_curvepiece_points`. Each curvepiece is a GLMakie `CHECK` plot, with an
+inspector label readable via `DataInspector`. Each curvepiece is drawn with a directional arrow at
+its midpoint.
+
+
+Returns a dictionary from curvepiece id to plot objects, to allow later modification of the plotted
+curves. Throws if `length(v) != num_edges(t)`.
 """
-function CurveDiagrams.visualize!(ax::Axis, t::Tile, v::Vector{<:Point2})
+function CurveDiagrams.visualize!(ax::Axis, t::Tile, v::Vector{<:Point2}; sharpness::Real=0.3)
+    EDGE_COLOR = :gray90
+    CENTER_COLOR = :gray60
+    CURVEPIECE_COLOR = :red
+
     length(v) == num_edges(t) ||
         throw(ArgumentError("expected $(num_edges(t)) vertices, got $(length(v))"))
-
-    lines!(ax, push!(copy(v), v[1]); color=:gray80)
-    num_anyon_erefs(t) > 0 && scatter!(ax, [_tile_center(v)]; markersize=12, color=:gray60)
-
-    # precompute shared quantities once
-    center = _tile_center(v)
-    h_dict = _calculate_hierarchy(t)
-    max_h  = isempty(h_dict) ? 1 : maximum(first(tup) for tup in values(h_dict))
-    avoidance_angle = num_anyon_erefs(t) > 0 ? _anyon_curvepiece_edge_angle(t, v) : nothing
-    # arrow scale: ~15% of the polygon circumradius
-    arrow_scale = 0.15f0 * maximum(sqrt((p[1] - center[1])^2 + (p[2] - center[2])^2) for p in v)
-
+    # draw tile edges and anyon center point
+    edges_plot = lines!(ax, push!(copy(v), v[1]); color=EDGE_COLOR)
+    center = _polygon_center(v)
+    center_plot = num_anyon_erefs(t) > 0 ? scatter!(ax, [center]; markersize=12, color=CENTER_COLOR) : nothing
+    # preliminary calculations we'll need later
+    inradius     = _polygon_inradius(v, center)
+    arrow_scale  = 0.05f0 * inradius
+    nesting_dict = calculate_nesting_hierarchy(t)
+    avoid_angle  = _anyon_avoid_angle(t, v, center)
+    # plot curvepieces
+    curvepiece_plots = Dict{Int, Any}()
     for cp_id in curvepiece_ids(t)
-        cp = curvepiece(t, cp_id)
-        p1 = _endpoint_point(t, v, EndpointRef(cp_id, 1))
-        p2 = _endpoint_point(t, v, EndpointRef(cp_id, 2))
+        cp    = curvepiece(t, cp_id)
+        label = "curvepiece with id $cp_id in curve $(cp.curve_id) after anyon $(cp.anyon_count)"
 
-        ctrl = if haskey(h_dict, cp_id)
-            h = first(h_dict[cp_id])
-            ctrl_angle = _midpoint_angle(_polar_angle(p1, center), _polar_angle(p2, center),
-                                         avoidance_angle)
-            max_r = _ray_to_boundary_dist(center, ctrl_angle, v)
-            _ee_control_point(p1, p2, center, h, max_h, max_r, avoidance_angle)
-        else
-            edge_p = cp.endpoint1 isa EdgeEndpoint ? p1 : p2
-            (edge_p + center) / 2
+        pts = if cp.endpoint1 isa EdgeEndpoint && cp.endpoint2 isa EdgeEndpoint # e2e
+            ep1      = cp.endpoint1::EdgeEndpoint
+            ep2      = cp.endpoint2::EdgeEndpoint
+            p1       = _endpoint_position(t, v, EndpointRef(cp_id, 1))
+            p2       = _endpoint_position(t, v, EndpointRef(cp_id, 2))
+            p1_e1, p1_e2 = _edge_endpoints(v, ep1.edge)
+            p2_e1, p2_e2 = _edge_endpoints(v, ep2.edge)
+            dir      = _traversal_direction(_polar_angle(p1, center), _polar_angle(p2, center), avoid_angle)
+            ccw      = dir == :ccw
+            nesting, max_enc = nesting_dict[cp_id]
+            radius   = _curvepiece_radius(nesting, max_enc, inradius)
+            _edge_to_edge_curvepiece_points(p1, p1_e1, p1_e2, p2, p2_e1, p2_e2, center, radius, ccw, sharpness)
+        else # e2a / a2e
+            edge_ep    = cp.endpoint1 isa EdgeEndpoint ? cp.endpoint1::EdgeEndpoint : cp.endpoint2::EdgeEndpoint
+            edge_which = cp.endpoint1 isa EdgeEndpoint ? 1 : 2
+            p          = _endpoint_position(t, v, EndpointRef(cp_id, edge_which))
+            e1, e2     = _edge_endpoints(v, edge_ep.edge)
+            _edge_to_anyon_curvepiece_points(p, e1, e2, center, sharpness)
         end
-        @show ctrl
-
-        bp    = BezierPath([MoveTo(p1), CurveTo(ctrl, ctrl, p2)])
-        label = "curvepiece with id $cp_id in curve $(cp.curve_id) at position $(cp.anyon_count)"
-        lines!(ax, bp; color=:red, inspector_label=(_, _, _) -> label)
-
-        # direction arrow at the bezier midpoint, pointing from p1 toward p2
-        d = p2 - p1
-        dnorm = sqrt(d[1]^2 + d[2]^2)
-        if dnorm > 0
-            unit = Point2f(d[1] / dnorm, d[2] / dnorm)
-            midpt = 0.25 * p1 + 0.5 * ctrl + 0.25* p2
-            arr_len = 0.5f0 * arrow_scale
-            # arrows2d!(ax, [midpt - 0.5 * arr_len * unit],
-                        # [arr_len * unit]; color=:red,
-                        # tipwidth=arr_len * 4, tiplength=arr_len * 0.7,
-                        # inspectable=false)
-
-            arrows2d!(ax, [midpt],
-                        [unit]; color=:red, align=:tip, shaftlength=0, taillength=0,
-                        tipwidth=arr_len * 4, tiplength=arr_len * 0.7,
-
-                        inspectable=false)
-        end
+        lp = lines!(ax, pts; color=CURVEPIECE_COLOR, inspector_label=(_, _, _) -> label)
+        # direction arrow at the midpoint of the sampled points
+        # mid_idx = length(pts) ÷ 2
+        # unit    = Point2f(normalize(pts[mid_idx + 1] - pts[mid_idx - 1])...)
+        # ap = arrows2d!(ax, [pts[mid_idx]], [unit]; color=:red, align=:tip,
+        #                shaftlength=0, taillength=0,
+        #                tipwidth=arrow_scale * 0.5, tiplength=arrow_scale,
+        #                inspectable=false)
+        # curvepiece_plots[cp_id] = (lines=lp, arrow=ap)
     end
+    # return plots
+    edges_plot, center_plot, curvepiece_plots
 end
 
 """

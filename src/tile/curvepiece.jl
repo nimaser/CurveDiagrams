@@ -9,13 +9,13 @@ respectively.
 Every curvepiece has two endpoints which either
 - are both located on tile edges
 - have one located on an edge and one located on an anyon
-An endpoint's 'partner' is the other endpoint in the same curvepiece.
+An endpoint's 'curvepiece partner' is the other endpoint in the same curvepiece.
 """
 abstract type CurvepieceEndpoint end
 
 """
 An anyon endpoint has a `direction`, but no location information, because
-there isn't any ordering of the endpoints on an anyon, like there is with
+there isn't any ordering of the endpoints on an anyon like there is with
 endpoints on an edge.
 """
 struct AnyonEndpoint <: CurvepieceEndpoint
@@ -84,7 +84,8 @@ is `endpoint2`, and vice versa.
 A curvepiece must either pass through a tile completely, meaning its first endpoint is at an edge
 and its second endpoint is at an edge, or must pass from outside the tile to the tile's anyon, or
 from the tile's anyon to the outside; in these latter scenarios one of the endpoints is on an edge
-and one of them is on an anyon.
+and one of them is on an anyon. These scenarios are called 'edge-to-edge'/'e2e' curvepieces and
+'edge-to-anyon'/'e2a' or 'anyon-to-edge'/'a2e' curvepieces respectively.
 
 Each curvepiece in a tile has an id unique to the curvepieces in that tile. This value is used as a
 key to lookup the curvepiece struct associated with each curvepiece, and therefore access its metadata.

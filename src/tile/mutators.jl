@@ -12,18 +12,18 @@ affect the validity of the move.
 """
 function _validate_edge_partition(t::Tile, edge1::Int, pos1::Int, edge2::Int, pos2::Int;
                                    exclude::Union{EndpointRef, Nothing}=nothing)
-    arc = EndpointRefs_between(t, edge1, pos1, edge2, pos2)
+    arc = erefs_between(t, edge1, pos1, edge2, pos2)
     exclude !== nothing && filter!(r -> r != exclude, arc)
-    unpaired = unpaired_EndpointRefs(arc)
-    unpaired_edge  = [r for r in unpaired if has_edge_partner(t, r)]
-    unpaired_anyon = [r for r in unpaired if has_anyon_partner(t, r)]
+    unpaired = unpaired_erefs(arc)
+    unpaired_edge  = [r for r in unpaired if cp_partner_type(t, r) === EdgeEndpoint]
+    unpaired_anyon = [r for r in unpaired if cp_partner_type(t, r) === AnyonEndpoint]
     if !isempty(unpaired_edge)
         throw(ArgumentError(
             "partition ($edge1,$pos1)→($edge2,$pos2) would intersect curves: " *
             "$(length(unpaired_edge)) unpaired edge endpoint(s) in arc"))
     end
     # 0 or 2 unpaired anyon endpoints: valid. Exactly 1 with 2 anyon cps present: invalid
-    if length(unpaired_anyon) == 1 && num_anyon_curvepieces(t) == 2
+    if length(unpaired_anyon) == 1 && num_anyon_erefs(t) == 2
         throw(ArgumentError(
             "partition ($edge1,$pos1)→($edge2,$pos2) would intersect curves: " *
             "arc crosses exactly one of two anyon-curvepiece boundary points"))
@@ -41,9 +41,9 @@ affect the validity of the move.
 """
 function _validate_anyon_partition(t::Tile, edge1::Int, pos1::Int, edge2::Int, pos2::Int;
                                     exclude::Union{EndpointRef, Nothing}=nothing)
-    arc = EndpointRefs_between(t, edge1, pos1, edge2, pos2)
+    arc = erefs_between(t, edge1, pos1, edge2, pos2)
     exclude !== nothing && filter!(r -> r != exclude, arc)
-    unpaired = unpaired_EndpointRefs(arc)
+    unpaired = unpaired_erefs(arc)
     if !isempty(unpaired)
         throw(ArgumentError(
             "anyon partition ($edge1,$pos1)→($edge2,$pos2) would intersect curves: " *
@@ -58,25 +58,25 @@ end
 
 """Validation wrapper for edge-to-anyon curvepiece insertion."""
 function _validate_edge_to_anyon_insertion(t::Tile, edge::Int, pos::Int)
-    n = num_anyon_curvepieces(t)
+    n = num_anyon_erefs(t)
     n == 0 && return
     n == 2 && throw(ArgumentError("tile already has two anyon curvepieces; cannot insert a third"))
     # n == 1: check no edge-to-edge cp crosses the partition formed by the two anyon cps
-    anyon_eref = only(get_anyon_EndpointRefs(t))
-    edge_ep = get_endpoint(t, get_partner_EndpointRef(anyon_eref))::EdgeEndpoint
+    anyon_eref = only(anyon_erefs(t))
+    edge_ep = endpoint(t, cp_partner(anyon_eref))::EdgeEndpoint
     _validate_anyon_partition(t, edge, pos, edge_ep.edge, edge_ep.pos)
 end
 
 """Validation wrapper for moving an edge endpoint."""
 function _validate_move(t::Tile, eref::EndpointRef, edge::Int, pos::Int)
-    partner_ep = get_endpoint(t, get_partner_EndpointRef(eref))
+    partner_ep = endpoint(t, cp_partner(eref))
     if partner_ep isa EdgeEndpoint
         _validate_edge_partition(t, edge, pos, partner_ep.edge, partner_ep.pos; exclude=eref)
     else
         # a partition only forms when two anyon curvepieces are present
-        num_anyon_curvepieces(t) == 1 && return
-        other_anyon_eref = only(r for r in get_anyon_EndpointRefs(t) if r.cp_id != eref.cp_id)
-        other_edge_ep = get_endpoint(t, get_partner_EndpointRef(other_anyon_eref))::EdgeEndpoint
+        num_anyon_erefs(t) == 1 && return
+        other_anyon_eref = only(r for r in anyon_erefs(t) if r.cp_id != eref.cp_id)
+        other_edge_ep = endpoint(t, cp_partner(other_anyon_eref))::EdgeEndpoint
         _validate_anyon_partition(t, edge, pos, other_edge_ep.edge, other_edge_ep.pos; exclude=eref)
     end
 end
@@ -121,8 +121,8 @@ function insert_curvepiece!(t::Tile, curve_id::Int, anyon_count::Int,
     cp = Curvepiece(curve_id, anyon_count,
         EdgeEndpoint(IN, edge1, pos1), EdgeEndpoint(OUT, edge2, pos2))
     t._curvepieces[cp_id] = cp
-    _insert_edge_EndpointRef!(t, EndpointRef(cp_id, 1), edge1, pos1)
-    _insert_edge_EndpointRef!(t, EndpointRef(cp_id, 2), edge2, pos2)
+    _insert_edge_eref!(t, EndpointRef(cp_id, 1), edge1, pos1)
+    _insert_edge_eref!(t, EndpointRef(cp_id, 2), edge2, pos2)
     cp_id
 end
 
@@ -149,13 +149,13 @@ Returns the `cp_id` of the created curvepiece.
 function insert_curvepiece!(t::Tile, curve_id::Int, anyon_count::Int,
     edge::Int, pos::Int, direction::EndpointDirection,
 )
-    if num_anyon_curvepieces(t) == 1
+    if num_anyon_erefs(t) == 1
         existing_id = anyon_curve_id(t)
         existing_id != curve_id && throw(ArgumentError(
             "both anyon curvepieces must belong to the same curve; " *
             "existing curve_id=$existing_id, new curve_id=$curve_id"))
-        existing_eref = only(get_anyon_EndpointRefs(t))
-        existing_dir = get_endpoint(t, existing_eref).direction
+        existing_eref = only(anyon_erefs(t))
+        existing_dir = endpoint(t, existing_eref).direction
         existing_dir == direction && throw(ArgumentError(
             "both anyon curvepieces must have opposite directions; " *
             "existing direction=$existing_dir, new direction=$direction"))
@@ -169,20 +169,20 @@ function insert_curvepiece!(t::Tile, curve_id::Int, anyon_count::Int,
     # extract ordering from cp, then use it to construct endpointrefs
     edge_which  = cp.endpoint1 isa EdgeEndpoint ? 1 : 2
     anyon_which = 3 - edge_which
-    _insert_edge_EndpointRef!(t, EndpointRef(cp_id, edge_which), edge, pos)
-    _push_anyon_EndpointRef!(t, EndpointRef(cp_id, anyon_which))
+    _insert_edge_eref!(t, EndpointRef(cp_id, edge_which), edge, pos)
+    _push_anyon_eref!(t, EndpointRef(cp_id, anyon_which))
     cp_id
 end
 
 """Remove the curvepiece with id `cp_id` from `t`, along with its `EndpointRef`s."""
 function remove_curvepiece!(t::Tile, cp_id::Int)
-    cp = get_curvepiece(t, cp_id)
+    cp = curvepiece(t, cp_id)
     for (idx, ep) in enumerate((cp.endpoint1, cp.endpoint2))
         eref = EndpointRef(cp_id, idx)
         if ep isa EdgeEndpoint
-            _remove_edge_EndpointRef!(t, ep.edge, ep.pos)
+            _remove_edge_eref!(t, ep.edge, ep.pos)
         else
-            _remove_anyon_EndpointRef!(t, eref)
+            _remove_anyon_eref!(t, eref)
         end
     end
     delete!(t._curvepieces, cp_id)
@@ -209,12 +209,12 @@ We have to check that the new partition of the tile does not split the two endpo
 to-edge curvepiece into different parts of the partition.
 """
 function move_endpoint!(t::Tile, eref::EndpointRef, new_edge::Int, new_pos::Int)
-    ep::EdgeEndpoint = get_endpoint(t, eref)
+    ep::EdgeEndpoint = endpoint(t, eref)
     _validate_move(t, eref, new_edge, new_pos)
-    _remove_edge_EndpointRef!(t, ep.edge, ep.pos)
+    _remove_edge_eref!(t, ep.edge, ep.pos)
     # if moving to somewhere on the same edge, removing the original EndpointRef changes the insertion position
     new_pos = (new_edge == ep.edge && new_pos > ep.pos) ? new_pos - 1 : new_pos
-    _insert_edge_EndpointRef!(t, eref, new_edge, new_pos)
+    _insert_edge_eref!(t, eref, new_edge, new_pos)
     _set_endpoint_location!(t, eref, new_edge, new_pos)
     nothing
 end
@@ -227,7 +227,7 @@ curvepiece accordingly.
 """
 function flip_direction!(t::Tile, cp_id::Int)
     # flip endpoint directions
-    cp = get_curvepiece(t, cp_id)
+    cp = curvepiece(t, cp_id)
     flip(ep::EdgeEndpoint)  = EdgeEndpoint(ep.direction == IN ? OUT : IN, ep.edge, ep.pos)
     flip(ep::AnyonEndpoint) = AnyonEndpoint(ep.direction == IN ? OUT : IN)
     new_cp = Curvepiece(cp.curve_id, cp.anyon_count, flip(cp.endpoint1), flip(cp.endpoint2))
@@ -235,14 +235,14 @@ function flip_direction!(t::Tile, cp_id::Int)
     # flip all stored edge endpointrefs
     for edge_list in t._edge_endpoints
         for i in eachindex(edge_list)
-            edge_list[i].cp_id == cp_id && (edge_list[i] = get_partner_EndpointRef(edge_list[i]))
+            edge_list[i].cp_id == cp_id && (edge_list[i] = cp_partner(edge_list[i]))
         end
     end
     # flip all stored anyon endpointrefs
-    for eref in get_anyon_EndpointRefs(t)
+    for eref in anyon_erefs(t)
         if eref.cp_id == cp_id
             delete!(t._anyon_endpoints, eref)
-            push!(t._anyon_endpoints, get_partner_EndpointRef(eref))
+            push!(t._anyon_endpoints, cp_partner(eref))
         end
     end
     nothing
@@ -250,7 +250,7 @@ end
 
 """Update the curve-related metadata for a curvepiece after e.g. a merge or grow operation."""
 function set_curvepiece_metadata!(t::Tile, cp_id::Int, curve_id::Int, anyon_count::Int)
-    cp = get_curvepiece(t, cp_id)
+    cp = curvepiece(t, cp_id)
     t._curvepieces[cp_id] = Curvepiece(curve_id, anyon_count, cp.endpoint1, cp.endpoint2)
     nothing
 end
