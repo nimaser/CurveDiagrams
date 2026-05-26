@@ -88,6 +88,22 @@ end
     )
 end
 
+"""
+Return the three vertices of an arrowhead triangle, used for indicating curvepiece directions.
+
+The tip is at `center + (scale/2) * unit`. The base midpoint is at `center - (scale/2) * unit`,
+so the total tip-to-base length equals `scale`. The base half-width is `scale * 0.4`.
+
+`unit` must be a unit vector giving the pointing direction.
+"""
+function _arrow_triangle(center::Point2, unit::Point2, scale::Real)
+    perp    = Point2f(-unit[2], unit[1])
+    tip     = center + (scale / 2) * unit
+    base    = center - (scale / 2) * unit
+    width   = scale * 0.5f0
+    Point2f[tip, base + width * perp, base - width * perp]
+end
+
 ### CURVEPIECE PLOTTING HELPERS ###
 
 """
@@ -333,7 +349,7 @@ function CurveDiagrams.visualize!(ax::Axis, t::Tile, v::Vector{<:Point2}; sharpn
     center_plot = num_anyon_erefs(t) > 0 ? scatter!(ax, [center]; markersize=12, color=CENTER_COLOR) : nothing
     # preliminary calculations we'll need later
     inradius     = _polygon_inradius(v, center)
-    arrow_scale  = 0.05f0 * inradius
+    arrow_scale  = 0.10f0 * inradius
     nesting_dict = calculate_nesting_hierarchy(t)
     avoid_angle  = _anyon_avoid_angle(t, v, center)
     # plot curvepieces
@@ -363,13 +379,11 @@ function CurveDiagrams.visualize!(ax::Axis, t::Tile, v::Vector{<:Point2}; sharpn
         end
         lp = lines!(ax, pts; color=CURVEPIECE_COLOR, inspector_label=(_, _, _) -> label)
         # direction arrow at the midpoint of the sampled points
-        # mid_idx = length(pts) ÷ 2
-        # unit    = Point2f(normalize(pts[mid_idx + 1] - pts[mid_idx - 1])...)
-        # ap = arrows2d!(ax, [pts[mid_idx]], [unit]; color=:red, align=:tip,
-        #                shaftlength=0, taillength=0,
-        #                tipwidth=arrow_scale * 0.5, tiplength=arrow_scale,
-        #                inspectable=false)
-        # curvepiece_plots[cp_id] = (lines=lp, arrow=ap)
+        mid_idx = length(pts) ÷ 2
+        unit    = Point2f(normalize(pts[mid_idx + 1] - pts[mid_idx - 1])...)
+        ap = poly!(ax, _arrow_triangle(pts[mid_idx], unit, arrow_scale);
+                   color=CURVEPIECE_COLOR, inspectable=false)
+        curvepiece_plots[cp_id] = (lines=lp, arrow=ap)
     end
     # return plots
     edges_plot, center_plot, curvepiece_plots
