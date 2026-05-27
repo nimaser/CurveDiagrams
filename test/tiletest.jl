@@ -67,8 +67,8 @@ end
     @test num_anyon_erefs(t) == 2
     @test num_anyon_erefs(t1) == 1
 
-    # curvepiece_ids — sorted
-    @test curvepiece_ids(t) == [1, 2, 3, 4]
+    # curvepiece_ids
+    @test Set(curvepiece_ids(t)) == Set((1, 2, 3, 4))
 
     # curvepiece
     @test curvepiece(t, 1) == c1
@@ -83,6 +83,12 @@ end
     @test endpoint(t, EndpointRef(3, 2)) == c3.endpoint2
     @test endpoint(t, EndpointRef(4, 1)) == c4.endpoint1
     @test endpoint(t, EndpointRef(4, 2)) == c4.endpoint2
+
+    # endpoint
+    @test endpoint(c1, EndpointRef(1, 1)) == c1.endpoint1
+    @test endpoint(c1, EndpointRef(1, 2)) == c1.endpoint2
+    @test endpoint(c4, EndpointRef(4, 1)) == c4.endpoint1
+    @test endpoint(c4, EndpointRef(4, 2)) == c4.endpoint2
 
     # edge_eref, fetches erefs by edge and position
     @test edge_eref(t, 1, 1) == EndpointRef(1, 1)
@@ -415,7 +421,7 @@ end
         @test id1 == 1
         @test id2 == 2
         @test id3 == 3
-        @test curvepiece_ids(t) == [1, 2, 3]
+        @test Set(curvepiece_ids(t)) == Set((1, 2, 3))
     end
 
     # same edge insertion, IN then OUT
@@ -512,7 +518,7 @@ end
         id2 = insert_curvepiece!(t, 20, 1, 1, 2, 2, 1)
         # make sure curvepiece was removed correctly
         remove_curvepiece!(t, id1)
-        @test curvepiece_ids(t) == [id2]
+        @test Set(curvepiece_ids(t)) == Set(id2)
         @test num_edge_erefs(t, 1) == 1
         @test num_edge_erefs(t, 3) == 0
         # remaining endpoint and eref positions are correct

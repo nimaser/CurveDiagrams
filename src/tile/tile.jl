@@ -9,7 +9,7 @@ struct EndpointRef
 end
 
 """Returns an `EndpointRef` to the curvepiece partner of the endpoint that `eref` is pointing to."""
-cp_partner(eref::EndpointRef) = EndpointRef(eref.cp_id, 3 - eref.endpoint_idx) # idx: 1 -> 2, 2 -> 1
+@inline cp_partner(eref::EndpointRef) = EndpointRef(eref.cp_id, 3 - eref.endpoint_idx) # idx: 1 -> 2, 2 -> 1
 
 """
 Each `Tile` is comprised of a number of curvepieces which enter/exit the tile. Methods on
@@ -64,47 +64,49 @@ end
 ### TILE GEOMETRY ###
 
 """The number of edges in the tile `t`."""
-num_edges(t::Tile) = length(t._edge_endpoints)
+@inline num_edges(t::Tile) = length(t._edge_endpoints)
 
 """The next edge number after edge `edge` in the tile `t`, wrapping around."""
-next_edge(t::Tile, edge::Int) = mod1(edge + 1, num_edges(t))
+@inline next_edge(t::Tile, edge::Int) = mod1(edge + 1, num_edges(t))
 
 """The prev edge number after edge `edge` in the tile `t`, wrapping around."""
-prev_edge(t::Tile, edge::Int) = mod1(edge - 1, num_edges(t))
+@inline prev_edge(t::Tile, edge::Int) = mod1(edge - 1, num_edges(t))
 
 ### EREF GETTERS ###
 
 """Whether the edge `edge` in tile `t` has any endpoints on it."""
-has_edge_erefs(t::Tile, edge::Int) = !isempty(t._edge_endpoints[edge])
+@inline has_edge_erefs(t::Tile, edge::Int) = !isempty(t._edge_endpoints[edge])
 
 """The number of endpoints present on edge `edge` in `t`."""
-num_edge_erefs(t::Tile, edge::Int) = length(t._edge_endpoints[edge])
+@inline num_edge_erefs(t::Tile, edge::Int) = length(t._edge_endpoints[edge])
 
 """Returns a clockwise-ordered list of all `EndpointRef`s located on edge `edge` of tile `t`."""
-edge_erefs(t::Tile, edge::Int) = collect(t._edge_endpoints[edge])
+@inline edge_erefs(t::Tile, edge::Int) = collect(t._edge_endpoints[edge])
 
 """Returns a clockwise-ordered list of all `EndpointRef`s located on the edges of tile `t`."""
-edge_erefs(t::Tile) = vcat([edge_erefs(t, i) for i in 1:num_edges(t)]...)
+@inline edge_erefs(t::Tile) = collect(Iterators.flatten(t._edge_endpoints))
 
 """Whether the edge `edge` in tile `t` has any `EndpointRef` at position `pos`."""
-has_edge_eref(t::Tile, edge::Int, pos::Int) = 1 <= pos <= num_edge_erefs(t, edge)
+@inline has_edge_eref(t::Tile, edge::Int, pos::Int) = 1 <= pos <= num_edge_erefs(t, edge)
 
 """Returns the `EndpointRef` at position `pos` on edge `edge` in tile `t`."""
-edge_eref(t::Tile, edge::Int, pos::Int) = t._edge_endpoints[edge][pos]
+@inline edge_eref(t::Tile, edge::Int, pos::Int) = t._edge_endpoints[edge][pos]
 
 """Number of curvepieces with an `EndpointRef` at tile `t`'s anyon."""
-num_anyon_erefs(t::Tile) = length(t._anyon_endpoints)
+@inline num_anyon_erefs(t::Tile) = length(t._anyon_endpoints)
 
 """Whether there are any curvepieces with an `EndpointRef` at tile `t`'s anyon."""
-has_anyon_erefs(t::Tile) = !isempty(t._anyon_endpoints)
+@inline has_anyon_erefs(t::Tile) = !isempty(t._anyon_endpoints)
 
 """Returns a list of all the `EndpointRef`s located on the anyon in tile `t`."""
-anyon_erefs(t::Tile) = collect(t._anyon_endpoints)
+@inline anyon_erefs(t::Tile) = collect(t._anyon_endpoints)
 
 """Returns curvepiece `cp_id`s `EndpointRef`, if it exists, at `t`s anyon. Otherwise returns `nothing`."""
-function anyon_eref(t::Tile, cp_id::Int)
-    anyon_eref = filter(eref -> eref.cp_id == cp_id, anyon_erefs(t))
-    isempty(anyon_eref) ? nothing : only(anyon_eref)
+@inline function anyon_eref(t::Tile, cp_id::Int)
+    for eref in t._anyon_endpoints # not using anyon_erefs(t) to avoid unnecessary collect() allocation
+        eref.cp_id == cp_id && return eref
+    end
+    nothing
 end
 
 ### EREF TRAVERSAL ###
@@ -190,8 +192,8 @@ function ordered_erefs(t::Tile, erefs::Set{EndpointRef}, edge::Int, pos::Int)
     while true
         current ∈ erefs && push!(result, current)
         length(result) == length(erefs) && break
-        current = next_eref_wrap(t, (endpoint(t, current)::EdgeEndpoint).edge,
-                                      (endpoint(t, current)::EdgeEndpoint).pos)
+        epc = endpoint(t, current)::EdgeEndpoint
+        current = next_eref_wrap(t, epc.edge, epc.pos)
         current == start && break
     end
     length(result) == length(erefs) || throw(ArgumentError("not all endpoints found in tile"))
@@ -239,11 +241,15 @@ end
 ### ENDPOINTS ###
 
 """Returns the `Endpoint` in `t` pointed to by `eref`."""
-endpoint(t::Tile, eref::EndpointRef) =
+@inline endpoint(t::Tile, eref::EndpointRef) =
     eref.endpoint_idx == 1 ? t._curvepieces[eref.cp_id].endpoint1 : t._curvepieces[eref.cp_id].endpoint2
 
+"""Return the `Endpoint` of `cp` pointed to by `eref`."""
+@inline endpoint(cp::Curvepiece, eref::EndpointRef) =
+    eref.endpoint_idx == 1 ? cp.endpoint1 : cp.endpoint2
+
 """Returns the type (`EdgeEndpoint` or `AnyonEndpoint`) of the curvepiece partner of `eref` in tile `t`."""
-cp_partner_type(t::Tile, eref::EndpointRef) = typeof(endpoint(t, cp_partner(eref)))
+@inline cp_partner_type(t::Tile, eref::EndpointRef) = typeof(endpoint(t, cp_partner(eref)))
 
 """
 Returns the 'tile partner' of `eref`, an edge endpoint in tile `t`. Returns `nothing` if `eref`
@@ -285,8 +291,8 @@ end
 
 ### CURVEPIECES ###
 
-"""Returns the sorted list of all curvepiece ids present in `t`."""
-curvepiece_ids(t::Tile) = sort(collect(keys(t._curvepieces)))
+"""Returns an iterator over all curvepiece ids present in `t`."""
+curvepiece_ids(t::Tile) = keys(t._curvepieces)
 
 """Returns `cp_id`s for all anyon-to-edge curvepieces in `t`."""
 function anyon_cp_ids(t::Tile)
@@ -302,16 +308,17 @@ an error if `cp_id` is not an anyon curvepiece.
 function partner_cp_id(t::Tile, cp_id::Int)
     is_anyon_curvepiece(t, cp_id) ||
         throw(ArgumentError("curvepiece $cp_id is not an anyon curvepiece so has no partner"))
-    anyon_ids = anyon_cp_ids(t)
-    partner_idx = findfirst(id -> id != cp_id, anyon_ids)
-    partner_idx === nothing ? nothing : anyon_ids[partner_idx]
+    for eref in t._anyon_endpoints
+        eref.cp_id != cp_id && return eref.cp_id
+    end
+    nothing
 end
 
 """Returns the `Curvepiece` with id `cp_id` inside of `t`."""
-curvepiece(t::Tile, cp_id::Int) = t._curvepieces[cp_id]
+@inline curvepiece(t::Tile, cp_id::Int) = t._curvepieces[cp_id]
 
 """Whether curvepiece `cp_id` in `t` has an `AnyonEndpoint`."""
-is_anyon_curvepiece(t::Tile, cp_id::Int) = anyon_eref(t, cp_id) != nothing
+@inline is_anyon_curvepiece(t::Tile, cp_id::Int) = anyon_eref(t, cp_id) != nothing
 
 """
 Returns the `curve_id` of the curvepieces which have endpoints on the anyon, `nothing` if there are
@@ -435,6 +442,23 @@ function calculate_nesting_hierarchy(t::Tile)
     Dict(id => (nesting[id], max_enc[id]) for id in ee_ids)
 end
 
+"""
+Return a list of curvepiece ids for the curvepieces which are u-turns. A u-turn
+curvepiece is an edge-to-edge curvepiece with both endpoints on the same edge.
+"""
+function u_turn_cp_ids(t::Tile)
+    u_turn_cp_ids = Int[]
+    for (cp_id, cp) in t._curvepieces # access field directly for efficiency
+        ep1, ep2 = cp.endpoint1, cp.endpoint2
+        if ep1 isa EdgeEndpoint && ep2 isa EdgeEndpoint # is it e2e
+            if ep1.edge == ep2.edge # are both on same edge
+                push!(u_turn_cp_ids, cp_id)
+            end
+        end
+    end
+    u_turn_cp_ids
+end
+
 ###############################################################################
 # INTERNAL MUTATORS
 ###############################################################################
@@ -461,8 +485,8 @@ the ordering of the endpoints in the curvepiece does not change, so no revalidat
 or reordering is needed.
 """
 function _set_endpoint_location!(t::Tile, eref::EndpointRef, edge::Int, pos::Int)
-    ep::EdgeEndpoint = endpoint(t, eref)
     cp = curvepiece(t, eref.cp_id)
+    ep::EdgeEndpoint = endpoint(cp, eref)
     if eref.endpoint_idx == 1
         t._curvepieces[eref.cp_id] = Curvepiece(cp.curve_id, cp.anyon_count,
             EdgeEndpoint(ep.direction, edge, pos), cp.endpoint2)
@@ -483,21 +507,22 @@ _set_endpoint_pos!(t::Tile, eref::EndpointRef, new_pos::Int) =
 
 """Insert `eref` into edge `edge` at position `pos`, shifting subsequent endpoint locations up."""
 function _insert_edge_eref!(t::Tile, eref::EndpointRef, edge::Int, pos::Int)
+    erefs = t._edge_endpoints[edge] # this is a hot path, so avoid collect() allocation in edge_erefs()
     # shift all endpoints above the insertion point to have positions incremented by 1
-    for oldendpointpos in pos:num_edge_erefs(t, edge)
-        _set_endpoint_pos!(t, edge_eref(t, edge, oldendpointpos), oldendpointpos + 1)
+    for oldendpointpos in pos:length(erefs)
+        _set_endpoint_location!(t, erefs[oldendpointpos], edge, oldendpointpos + 1)
     end
     # insert eref at pos
-    insert!(t._edge_endpoints[edge], pos, eref)
+    insert!(erefs, pos, eref)
 end
 
 """Remove EndpointRef at position `pos` in edge `edge`, shifting subsequent endpoint locations down."""
 function _remove_edge_eref!(t::Tile, edge::Int, pos::Int)
-    # remove eref at pos
-    deleteat!(t._edge_endpoints[edge], pos)
+    erefs = t._edge_endpoints[edge] # this is a hot path, so avoid collect() allocation in edge_erefs()
+    deleteat!(erefs, pos) # remove eref at pos
     # shift all endpoints above the removal point to have positions equal to their index in the array
-    for newendpointpos in pos:num_edge_erefs(t, edge)
-        _set_endpoint_pos!(t, edge_eref(t, edge, newendpointpos), newendpointpos)
+    for newendpointpos in pos:length(erefs)
+        _set_endpoint_location!(t, erefs[newendpointpos], edge, newendpointpos)
     end
 end
 

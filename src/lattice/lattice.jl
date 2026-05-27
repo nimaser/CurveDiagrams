@@ -282,6 +282,13 @@ function prev_anyon(l::Lattice, tile_id::Int)
     idx == 1 ? nothing : tiles[idx - 1]
 end
 
+"""
+
+"""
+function contains_nontrivial_charge(l::Lattice, tile_id::Int, cp_id::Int)
+
+end
+
 ###############################################################################
 # INTERNAL MUTATORS
 ###############################################################################
