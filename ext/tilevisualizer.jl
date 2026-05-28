@@ -100,7 +100,7 @@ function _arrow_triangle(center::Point2, unit::Point2, scale::Real)
     perp    = Point2f(-unit[2], unit[1])
     tip     = center + (scale / 2) * unit
     base    = center - (scale / 2) * unit
-    width   = scale * 0.5f0
+    width   = scale * 0.25f0
     Point2f[tip, base + width * perp, base - width * perp]
 end
 
@@ -346,7 +346,9 @@ function CurveDiagrams.visualize!(ax::Axis, t::Tile, v::Vector{<:Point2}; sharpn
     # draw tile edges and anyon center point
     edges_plot = lines!(ax, push!(copy(v), v[1]); color=EDGE_COLOR)
     center = _polygon_center(v)
-    center_plot = num_anyon_erefs(t) > 0 ? scatter!(ax, [center]; markersize=12, color=CENTER_COLOR) : nothing
+    center_plot = num_anyon_erefs(t) > 0 ?
+        scatter!(ax, [center]; markersize=12, color=CENTER_COLOR,
+                 inspector_label=(_, _, _) -> "anyon $(anyon_count(t))") : nothing
     # preliminary calculations we'll need later
     inradius     = _polygon_inradius(v, center)
     arrow_scale  = 0.10f0 * inradius
@@ -375,7 +377,9 @@ function CurveDiagrams.visualize!(ax::Axis, t::Tile, v::Vector{<:Point2}; sharpn
             edge_which = cp.endpoint1 isa EdgeEndpoint ? 1 : 2
             p          = _endpoint_position(t, v, EndpointRef(cp_id, edge_which))
             e1, e2     = _edge_endpoints(v, edge_ep.edge)
-            _edge_to_anyon_curvepiece_points(p, e1, e2, center, sharpness)
+            # make sure to flip the direction of the sampled points if its a2e, so the arrow points the right way
+            pts_e2a    = _edge_to_anyon_curvepiece_points(p, e1, e2, center, sharpness)
+            cp.endpoint1 isa AnyonEndpoint ? reverse(pts_e2a) : pts_e2a
         end
         lp = lines!(ax, pts; color=CURVEPIECE_COLOR, inspector_label=(_, _, _) -> label)
         # direction arrow at the midpoint of the sampled points

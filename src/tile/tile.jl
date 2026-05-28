@@ -315,7 +315,7 @@ function partner_cp_id(t::Tile, cp_id::Int)
 end
 
 """
-Return a list of curvepiece ids for the curvepieces which are u-turns. A u-turn
+Return a list of curvepiece ids for the u-turn curvepieces in `t`. A u-turn
 curvepiece is an edge-to-edge curvepiece with both endpoints on the same edge.
 """
 function u_turn_cp_ids(t::Tile)
@@ -344,9 +344,28 @@ have the same `curve_id`.
 """
 function anyon_curve_id(t::Tile)
     cp_ids = anyon_cp_ids(t)
-    cp_ids == [] && return nothing
+    isempty(cp_ids) && return nothing
     cp = curvepiece(t, first(cp_ids))
     cp.curve_id
+end
+
+"""
+Return the `anyon_count` of the anyon in this tile, if it has one, or `nothing` otherwise. That is,
+if there are any curvepieces with endpoints on the anyon, they are are part of a curve diagram, and
+this function returning `n` means that this anyon is the `nth` encountered on the curve diagram.
+"""
+function anyon_count(t::Tile)
+    cp_ids = anyon_cp_ids(t)
+    isempty(cp_ids) && return nothing
+    cps = [curvepiece(t, id) for id in cp_ids]
+    # try to find an anyon-to-edge curvepiece, and return its anyon_count if found
+    a2e = findfirst(cp -> cp.endpoint1 isa AnyonEndpoint, cps)
+    if a2e !== nothing
+        return cps[a2e].anyon_count
+    else
+        # only an edge-to-anyon curvepiece present, so we need to increase by 1
+        return only(cps).anyon_count + 1
+    end
 end
 
 """

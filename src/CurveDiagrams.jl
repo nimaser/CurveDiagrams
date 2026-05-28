@@ -19,12 +19,12 @@ export ordered_erefs, erefs_between, unpaired_erefs
 export endpoint, cp_partner_type, tile_partner
 # curvepieces
 export curvepiece_ids, anyon_cp_ids, partner_cp_id, u_turn_cp_ids
-export curvepiece, is_anyon_curvepiece, anyon_curve_id
+export curvepiece, is_anyon_curvepiece, anyon_curve_id, anyon_count
 export calculate_nesting_hierarchy
 include("tile/tile.jl")
 
 export insert_curvepiece!, remove_curvepiece!, merge_curvepieces!
-export move_endpoint!, flip_direction!, set_curvepiece_metadata!
+export move_endpoint!, reverse_curvepiece!, set_curvepiece_metadata!
 include("tile/mutators.jl")
 
 export CurvepieceRef, TileEdgeRef, Lattice

@@ -1,4 +1,6 @@
-### INTERNAL VALIDATION HELPERS ###
+###############################################################################
+# INTERNAL VALIDATION HELPERS
+###############################################################################
 
 """
 Validates that the clockwise arc `(edge1, pos1) → (edge2, pos2)` is a valid edge-to-edge
@@ -81,7 +83,9 @@ function _validate_move(t::Tile, eref::EndpointRef, edge::Int, pos::Int)
     end
 end
 
-### PUBLIC MUTATORS ###
+###############################################################################
+# PUBLIC MUTATORS
+###############################################################################
 
 """
 Insert an edge-to-edge curvepiece. `(edge1, pos1)` is where the IN endpoint is inserted and
@@ -191,6 +195,7 @@ end
 
 """
 Merge two curvepieces in `t` at the specified edge endpoints `eref1` and `eref2`.
+Return the curvepiece id of the resulting merged curvepiece.
 
 By 'merge' we mean:
 - suppose `eref1` belongs to `curvepiece1`, whose other endpoint is `erefA`
@@ -234,6 +239,36 @@ function merge_curvepieces!(t::Tile, eref1::EndpointRef, eref2::EndpointRef)
     pos_in = (endpoint(t, in_eref)::EdgeEndpoint).pos
     remove_curvepiece!(t, in_eref.cp_id)
     insert_curvepiece!(t, cp1.curve_id, cp1.anyon_count, in_ep.edge, pos_in, out_ep.edge, pos_out)
+end
+
+"""
+Reverse the traversal direction of curvepiece `cp_id` in `t` by inverting both endpoints'
+directions. Reversing always results in the endpoints of the curvepiece being stored in
+the opposite order in the curvepiece, requiring updating all `EndpointRef`s for this
+curvepiece accordingly.
+
+Does not modify `curve_id` or `anyon_count` of the curvepiece.
+"""
+function reverse_curvepiece!(t::Tile, cp_id::Int)
+    # flip endpoint directions
+    cp = curvepiece(t, cp_id)
+    flip(ep::EdgeEndpoint)  = EdgeEndpoint(ep.direction == IN ? OUT : IN, ep.edge, ep.pos)
+    flip(ep::AnyonEndpoint) = AnyonEndpoint(ep.direction == IN ? OUT : IN)
+    new_cp = Curvepiece(cp.curve_id, cp.anyon_count, flip(cp.endpoint1), flip(cp.endpoint2))
+    t._curvepieces[cp_id] = new_cp
+    # flip all stored edge endpointrefs
+    for edge_list in t._edge_endpoints
+        for i in eachindex(edge_list)
+            edge_list[i].cp_id == cp_id && (edge_list[i] = cp_partner(edge_list[i]))
+        end
+    end
+    # flip all stored anyon endpointrefs
+    for eref in anyon_erefs(t)
+        if eref.cp_id == cp_id
+            delete!(t._anyon_endpoints, eref)
+            push!(t._anyon_endpoints, cp_partner(eref))
+        end
+    end
     nothing
 end
 
@@ -264,35 +299,6 @@ function move_endpoint!(t::Tile, eref::EndpointRef, new_edge::Int, new_pos::Int)
     new_pos = (new_edge == ep.edge && new_pos > ep.pos) ? new_pos - 1 : new_pos
     _insert_edge_eref!(t, eref, new_edge, new_pos)
     _set_endpoint_location!(t, eref, new_edge, new_pos)
-    nothing
-end
-
-"""
-Flips the traversal direction of curvepiece `cp_id` in `t` by inverting both endpoints'
-directions. Flipping always results in the endpoints of the curvepiece being stored in
-the opposite order in the curvepiece, requiring updating all `EndpointRef`s for this
-curvepiece accordingly.
-"""
-function flip_direction!(t::Tile, cp_id::Int)
-    # flip endpoint directions
-    cp = curvepiece(t, cp_id)
-    flip(ep::EdgeEndpoint)  = EdgeEndpoint(ep.direction == IN ? OUT : IN, ep.edge, ep.pos)
-    flip(ep::AnyonEndpoint) = AnyonEndpoint(ep.direction == IN ? OUT : IN)
-    new_cp = Curvepiece(cp.curve_id, cp.anyon_count, flip(cp.endpoint1), flip(cp.endpoint2))
-    t._curvepieces[cp_id] = new_cp
-    # flip all stored edge endpointrefs
-    for edge_list in t._edge_endpoints
-        for i in eachindex(edge_list)
-            edge_list[i].cp_id == cp_id && (edge_list[i] = cp_partner(edge_list[i]))
-        end
-    end
-    # flip all stored anyon endpointrefs
-    for eref in anyon_erefs(t)
-        if eref.cp_id == cp_id
-            delete!(t._anyon_endpoints, eref)
-            push!(t._anyon_endpoints, cp_partner(eref))
-        end
-    end
     nothing
 end
 

@@ -167,68 +167,62 @@ end
 ### CURVEPIECES ###
 
 """
-Returns the 1-based index in the curve diagram where `CurvepieceRef(tile_id, cp_id)` appears,
-or `nothing` if not found.
+Returns the 1-based index in the curve diagram where `cref` appears, or `nothing` if not found.
 """
-function find_cref_index(l::Lattice, curve_id::Int, tile_id::Int, cp_id::Int)
-    target = CurvepieceRef(tile_id, cp_id)
-    findfirst(==(target), l._curvediagrams[curve_id])
+function find_cref_index(l::Lattice, curve_id::Int, cref::CurvepieceRef)
+    findfirst(==(cref), l._curvediagrams[curve_id])
 end
 
 """
-Returns the tile and curvepiece ids for the curvepiece which precedes `cp_id` in its
-curve diagram.
+Returns the `CurvepieceRef` for the curvepiece which precedes `cref` in its curve diagram.
 
-For `cp_id` being an edge-to-edge curvepiece:
-Returns `(neighbor_tile_id, neighbor_cp_id)` for the corresponding curvepiece across the
-edge hosting `endpoint1` (the `IN` endpoint) of the given curvepiece `cp_id`. This is
-the curvepiece that comes *before* `cp_id` in curve diagram traversal order.
+For an edge-to-edge curvepiece: returns the `CurvepieceRef` for the corresponding curvepiece
+across the edge hosting `endpoint1` (the `IN` endpoint). This is the curvepiece that comes
+*before* `cref` in curve diagram traversal order.
 
-If `cp_id` is an edge-to-anyon curvepiece, it will do the above or return the other
-edge-to-anyon curvepiece in the same tile, depending on whether `cp_id` refers to the
+If `cref` is an edge-to-anyon curvepiece, it will do the above or return the other
+edge-to-anyon curvepiece in the same tile, depending on whether `cref` refers to the
 first or second such curvepiece in the tile.
 
 Returns `nothing` if `endpoint1` is an `AnyonEndpoint` (the curvepiece is at
 the start of its curve).
 """
-function prev_curvepiece(l::Lattice, tile_id::Int, cp_id::Int)
-    t = get_tile(l, tile_id)
-    cp = curvepiece(t, cp_id)
+function prev_curvepiece(l::Lattice, cref::CurvepieceRef)
+    t = get_tile(l, cref.tile_id)
+    cp = curvepiece(t, cref.cp_id)
     if cp.endpoint1 isa AnyonEndpoint
-        partner = partner_cp_id(t, cp_id)
+        partner = partner_cp_id(t, cref.cp_id)
         partner === nothing && return nothing
-        return tile_id, partner
+        return CurvepieceRef(cref.tile_id, partner)
     end
-    neighbor_tile_id, neighbor_eref = sibling_eref(l, tile_id, EndpointRef(cp_id, 1))
-    neighbor_tile_id, neighbor_eref.cp_id
+    neighbor_tile_id, neighbor_eref = sibling_eref(l, cref.tile_id, EndpointRef(cref.cp_id, 1))
+    CurvepieceRef(neighbor_tile_id, neighbor_eref.cp_id)
 end
 
 """
-Returns the tile and curvepiece ids for the curvepiece which follows `cp_id` in its
-curve diagram.
+Returns the `CurvepieceRef` for the curvepiece which follows `cref` in its curve diagram.
 
-For `cp_id` being an edge-to-edge curvepiece:
-Returns `(neighbor_tile_id, neighbor_cp_id)` for the corresponding curvepiece across the
-edge hosting `endpoint2` (the `OUT` endpoint) of the given curvepiece `cp_id`. This is
-the curvepiece that comes *after* `cp_id` in curve diagram traversal order.
+For an edge-to-edge curvepiece: returns the `CurvepieceRef` for the corresponding curvepiece
+across the edge hosting `endpoint2` (the `OUT` endpoint). This is the curvepiece that comes
+*after* `cref` in curve diagram traversal order.
 
-If `cp_id` is an edge-to-anyon curvepiece, it will do the above or return the other
-edge-to-anyon curvepiece in the same tile, depending on whether `cp_id` refers to the
+If `cref` is an edge-to-anyon curvepiece, it will do the above or return the other
+edge-to-anyon curvepiece in the same tile, depending on whether `cref` refers to the
 first or second such curvepiece in the tile.
 
 Returns `nothing` if `endpoint2` is an `AnyonEndpoint` (the curvepiece is at
 the end of its curve).
 """
-function next_curvepiece(l::Lattice, tile_id::Int, cp_id::Int)
-    t = get_tile(l, tile_id)
-    cp = curvepiece(t, cp_id)
+function next_curvepiece(l::Lattice, cref::CurvepieceRef)
+    t = get_tile(l, cref.tile_id)
+    cp = curvepiece(t, cref.cp_id)
     if cp.endpoint2 isa AnyonEndpoint
-        partner = partner_cp_id(t, cp_id)
+        partner = partner_cp_id(t, cref.cp_id)
         partner === nothing && return nothing
-        return tile_id, partner
+        return CurvepieceRef(cref.tile_id, partner)
     end
-    neighbor_tile_id, neighbor_eref = sibling_eref(l, tile_id, EndpointRef(cp_id, 2))
-    neighbor_tile_id, neighbor_eref.cp_id
+    neighbor_tile_id, neighbor_eref = sibling_eref(l, cref.tile_id, EndpointRef(cref.cp_id, 2))
+    CurvepieceRef(neighbor_tile_id, neighbor_eref.cp_id)
 end
 
 ### ANYONS ###

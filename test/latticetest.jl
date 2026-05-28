@@ -102,18 +102,38 @@ end
     ep = endpoint(get_tile(l, 2), siblingeref)::EdgeEndpoint
     @test ep.edge == 1 && ep.pos == 1
     # prev, next, curveposition
-    @test prev_curvepiece(l, 1, cp_id1) == nothing
-    @test next_curvepiece(l, 1, cp_id1) == (2, 1)
-    @test prev_curvepiece(l, 2, cp_id2) == (1, 1)
-    @test next_curvepiece(l, 2, cp_id2) == nothing
-    @test find_cref_index(l, cid, 1, cp_id1) == 1
-    @test find_cref_index(l, cid, 2, cp_id2) == 2
-    @test find_cref_index(l, cid, 2, 3) == nothing
+    @test prev_curvepiece(l, CurvepieceRef(1, cp_id1)) === nothing
+    @test next_curvepiece(l, CurvepieceRef(1, cp_id1)) == CurvepieceRef(2, cp_id2)
+    @test prev_curvepiece(l, CurvepieceRef(2, cp_id2)) == CurvepieceRef(1, cp_id1)
+    @test next_curvepiece(l, CurvepieceRef(2, cp_id2)) === nothing
+    @test find_cref_index(l, cid, CurvepieceRef(1, cp_id1)) == 1
+    @test find_cref_index(l, cid, CurvepieceRef(2, cp_id2)) == 2
+    @test find_cref_index(l, cid, CurvepieceRef(2, 3)) === nothing
     # anyon_curve_id and anyon_tiles
     @test anyon_curve_id(get_tile(l, 1)) == 10
     @test anyon_curve_id(get_tile(l, 2)) == 10
     @test anyon_curve_id(get_tile(l, 3)) === nothing
     @test anyon_tiles(l, cid) == [1, 2]
+end
+
+@testset "Lattice sibling functions" begin
+    # one endpoint on tile 2 edge 1
+    let l = Lattice(HEX)
+        cid = _allocate_curve_id!(l)
+        insert_curvepiece!(get_tile(l, 2), cid, 1, 1, 1, 2, 1)
+        # sibling of pos 1 is pos 1, insert pos is 2
+        @test sibling_location(l, 1, 1, 1) == (2, 1, 1)
+        @test sibling_insert_pos(l, 1, 1, 1) == 2
+    end
+    # two endpoints on tile 2 edge 1
+    let l = Lattice(HEX)
+        cid = _allocate_curve_id!(l)
+        insert_curvepiece!(get_tile(l, 2), cid, 1, 1, 1, 1, 2)
+        # positions reverse (pos 1 <-> pos2), insert pos is sibling_pos + 1
+        @test sibling_location(l, 1, 1, 1) == (2, 1, 2)
+        @test sibling_location(l, 1, 1, 2) == (2, 1, 1)
+        @test sibling_insert_pos(l, 1, 1, 1) == 3
+    end
 end
 
 @testset "Lattice anyon functions" begin
