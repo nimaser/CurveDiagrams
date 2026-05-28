@@ -170,6 +170,18 @@ end
     @test prev_eref_wrap(t, 1, 1) == EndpointRef(1, 2)  # start of edge 1 -> skips empty edge 5 -> last on edge 4
 end
 
+@testset "Tile u_turn_cp_ids" begin
+    let t = Tile(3)
+        insert_curvepiece!(t, 10, 1, 1, 1, OUT) # a2e curvepiece 1
+        insert_curvepiece!(t, 10, 2, 1, 2, 2, 1) # e2e curvepiece 2
+        insert_curvepiece!(t, 10, 2, 2, 2, 2, 3) # e2e curvepiece 3
+        insert_curvepiece!(t, 10, 2, 2, 2, 3, 1) # e2e curvepiece 4
+        insert_curvepiece!(t, 10, 3, 3, 2, 3, 3) # e2e curvepiece 5
+        insert_curvepiece!(t, 10, 3, 3, 3, 3, 3) # e2 curvepiece 6
+        @test Set(u_turn_cp_ids(t)) == Set((3, 5, 6))
+    end
+end
+
 @testset "Tile nesting number" begin
     # single e2e with endpoints on different edges: nesting 1, not enclosed by anything
     let t = Tile(3)
@@ -618,5 +630,57 @@ end
         # endpoints unchanged
         @test cp.endpoint1 == EdgeEndpoint(IN, 1, 1)
         @test cp.endpoint2 == EdgeEndpoint(OUT, 3, 1)
+    end
+
+    # merging curvepieces correctly
+    let t = Tile(4)
+        # erefs on same curvepiece
+        id1 = insert_curvepiece!(t, 10, 1, 1, 1, 2, 1)
+        @test_throws ArgumentError merge_curvepieces!(t, EndpointRef(id1, 1), EndpointRef(id1, 2))
+        # erefs have same direction (ex: both IN)
+        id2 = insert_curvepiece!(t, 10, 1, 4, 1, 3, 1)
+        @test_throws ArgumentError merge_curvepieces!(t, EndpointRef(id1, 1), EndpointRef(id2, 1))
+    end
+    let t = Tile(4)
+        # erefs on different curve diagrams
+        id1 = insert_curvepiece!(t, 10, 1, 1, 1, 1, 2)
+        id2 = insert_curvepiece!(t, 20, 1, 2, 1, 2, 2)
+        @test_throws ArgumentError merge_curvepieces!(t, EndpointRef(id1, 2), EndpointRef(id2, 1))
+        # erefs with different anyon_counts
+        id3 = insert_curvepiece!(t, 10, 2, 3, 1, 4, 1)
+        @test_throws ArgumentError merge_curvepieces!(t, EndpointRef(id3, 2), EndpointRef(id1, 1))
+    end
+    let t = Tile(4)
+        # erefA and erefB on different edges
+        id1 = insert_curvepiece!(t, 10, 1, 1, 1, 2, 1)
+        id2 = insert_curvepiece!(t, 10, 1, 2, 2, 3, 1)
+        merge_curvepieces!(t, EndpointRef(id1, 2), EndpointRef(id2, 1))
+        new_id = only(curvepiece_ids(t))
+        cp = curvepiece(t, new_id)
+        @test cp.curve_id == 10
+        @test cp.anyon_count == 1
+        @test cp.endpoint1 == EdgeEndpoint(IN, 1, 1)
+        @test cp.endpoint2 == EdgeEndpoint(OUT, 3, 1)
+        @test num_edge_erefs(t, 1) == 1
+        @test num_edge_erefs(t, 2) == 0
+        @test num_edge_erefs(t, 3) == 1
+        @test edge_eref(t, 1, 1) == EndpointRef(new_id, 1)
+        @test edge_eref(t, 3, 1) == EndpointRef(new_id, 2)
+    end
+    let t = Tile(4)
+        # erefA and erefB on same edge
+        id1 = insert_curvepiece!(t, 10, 1, 1, 1, 3, 1)
+        id2 = insert_curvepiece!(t, 10, 1, 3, 1, 1, 2)
+        merge_curvepieces!(t, EndpointRef(id1, 2), EndpointRef(id2, 1))
+        new_id = only(curvepiece_ids(t))
+        cp = curvepiece(t, new_id)
+        @test cp.curve_id == 10
+        @test cp.anyon_count == 1
+        @test cp.endpoint1 == EdgeEndpoint(IN, 1, 1)
+        @test cp.endpoint2 == EdgeEndpoint(OUT, 1, 2)
+        @test num_edge_erefs(t, 1) == 2
+        @test num_edge_erefs(t, 2) == 0
+        @test edge_eref(t, 1, 1) == EndpointRef(new_id, 1)
+        @test edge_eref(t, 1, 2) == EndpointRef(new_id, 2)
     end
 end

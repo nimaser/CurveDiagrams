@@ -190,6 +190,54 @@ function remove_curvepiece!(t::Tile, cp_id::Int)
 end
 
 """
+Merge two curvepieces in `t` at the specified edge endpoints `eref1` and `eref2`.
+
+By 'merge' we mean:
+- suppose `eref1` belongs to `curvepiece1`, whose other endpoint is `erefA`
+- suppose `eref2` belongs to `curvepiece2`, whose other endpoint is `erefB`
+- the result of the merge will be that `curvepiece1` and `curvepiece2` will
+be deleted, along with their endpoints, and a new curvepiece will be created
+whose endpoints are identical to `erefA` and `erefB`
+
+`eref1` and `eref2` must be edge endpoints with different directions located
+on different curvepieces. These curvepieces must be on the same curve diagram.
+All of these conditions are required to result in a valid curvepiece, and
+violating them will result in an error.
+
+This function is intended for use as a subroutine when removing U-turns and
+trivial bends in lattices.
+"""
+function merge_curvepieces!(t::Tile, eref1::EndpointRef, eref2::EndpointRef)
+    cp1 = curvepiece(t, eref1.cp_id)
+    cp2 = curvepiece(t, eref2.cp_id)
+    # validate
+    eref1.cp_id != eref2.cp_id || throw(ArgumentError("eref1 and eref2 must be on different curvepieces"))
+    ep1::EdgeEndpoint = endpoint(cp1, eref1)
+    ep2::EdgeEndpoint = endpoint(cp2, eref2)
+    ep1.direction != ep2.direction || throw(ArgumentError("eref1 and eref2 must have different directions"))
+    cp1.curve_id == cp2.curve_id || throw(ArgumentError("eref1 and eref2 must be on the same curve diagram"))
+    cp1.anyon_count == cp2.anyon_count || throw(ArgumentError("eref1 and eref2 must have the same anyon_count"))
+    # identify surviving endpoints erefA (partner of eref1) and erefB (partner of eref2)
+    erefA = cp_partner(eref1)
+    erefB = cp_partner(eref2)
+    epA::EdgeEndpoint = endpoint(cp1, erefA)
+    epB::EdgeEndpoint = endpoint(cp2, erefB)
+    # determine which surviving endpoint (of erefA and erefB) is IN and which is OUT
+    in_eref,  in_ep  = epA.direction == IN  ? (erefA, epA) : (erefB, epB)
+    out_eref, out_ep = epA.direction == OUT ? (erefA, epA) : (erefB, epB)
+    # insertion will insert the IN endpoint first, then the OUT endpoint in shifted coordinates.
+    # therefore, we record the position of the OUT endpoint, remove that curvepiece, then
+    # record the position of the IN endpoint, so that position shifts work out correctly
+    # when erefA and erefB are on the same edge; on different edges, the order doesn't matter
+    pos_out = out_ep.pos
+    remove_curvepiece!(t, out_eref.cp_id)
+    pos_in = (endpoint(t, in_eref)::EdgeEndpoint).pos
+    remove_curvepiece!(t, in_eref.cp_id)
+    insert_curvepiece!(t, cp1.curve_id, cp1.anyon_count, in_ep.edge, pos_in, out_ep.edge, pos_out)
+    nothing
+end
+
+"""
 Move an `EdgeEndpoint` to a new location. `new_pos` is relative to the internal state
 at the time of the function call, meaning the caller should not 'adjust' for the fact that
 locations will shift after removing the existing `EndpointRef` from the internal datastructures.

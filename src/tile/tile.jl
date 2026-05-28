@@ -314,6 +314,23 @@ function partner_cp_id(t::Tile, cp_id::Int)
     nothing
 end
 
+"""
+Return a list of curvepiece ids for the curvepieces which are u-turns. A u-turn
+curvepiece is an edge-to-edge curvepiece with both endpoints on the same edge.
+"""
+function u_turn_cp_ids(t::Tile)
+    u_turns = Int[]
+    for (cp_id, cp) in t._curvepieces # access field directly for efficiency
+        ep1, ep2 = cp.endpoint1, cp.endpoint2
+        if ep1 isa EdgeEndpoint && ep2 isa EdgeEndpoint # is it e2e
+            if ep1.edge == ep2.edge # are both on same edge
+                push!(u_turns, cp_id)
+            end
+        end
+    end
+    u_turns
+end
+
 """Returns the `Curvepiece` with id `cp_id` inside of `t`."""
 @inline curvepiece(t::Tile, cp_id::Int) = t._curvepieces[cp_id]
 
@@ -440,23 +457,6 @@ function calculate_nesting_hierarchy(t::Tile)
 
     # dictionary mapping curvepiece_id to nesting and max enclosing numbers
     Dict(id => (nesting[id], max_enc[id]) for id in ee_ids)
-end
-
-"""
-Return a list of curvepiece ids for the curvepieces which are u-turns. A u-turn
-curvepiece is an edge-to-edge curvepiece with both endpoints on the same edge.
-"""
-function u_turn_cp_ids(t::Tile)
-    u_turn_cp_ids = Int[]
-    for (cp_id, cp) in t._curvepieces # access field directly for efficiency
-        ep1, ep2 = cp.endpoint1, cp.endpoint2
-        if ep1 isa EdgeEndpoint && ep2 isa EdgeEndpoint # is it e2e
-            if ep1.edge == ep2.edge # are both on same edge
-                push!(u_turn_cp_ids, cp_id)
-            end
-        end
-    end
-    u_turn_cp_ids
 end
 
 ###############################################################################

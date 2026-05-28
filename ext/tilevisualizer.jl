@@ -55,8 +55,8 @@ Throws an error if `c` lies on that line.
 """
 function _normal_towards(e1::Point2, e2::Point2, c::Point2)
     line = normalize(e2 - e1)
-    other = c - e1 # this segment makes an angle with line, letting us find the direction for the normal
-    dot(line, other) < 1 || throw(ArgumentError("c cannot be on line between e1 and e2"))
+    other = normalize(c - e1) # this segment makes an angle with line, letting us find the direction for the normal
+    dot(line, other) < 1 || throw(ArgumentError("c $c cannot be on line between e1 $e1 and e2 $e2"))
     _perp(line; ccw=cross(line, other) > 0)
 end
 

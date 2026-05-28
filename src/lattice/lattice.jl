@@ -39,7 +39,7 @@ datastructures from it. `adjacency` should use tuples of `tile_id`, `edge` rathe
 structs, and the conversion is done internally. `edge` should be assigned in clockwise order
 going around each tile starting from 1. Two tiles sharing multiple edges with each other is unsupported.
 
-Each lattice mutator function in the public API returns an 'action', a ...
+Each lattice mutator function in the public API returns an 'action', a ... TODO
 """
 struct Lattice
     _tiles::Vector{Tile}
@@ -133,7 +133,7 @@ Similarly, note that using this function to get an insertion position will lead 
 if used naively: getting the sibling location in tile t2 of (edge, pos) in tile t1, then inserting
 at t1, edge, pos and t2, sibling_edge, sibling_pos, will not lead to aligned curvepieces. This is
 because insertions on either side shift everything clockwise locally which are opposite directions
-on either side of the edge. SO the sibling insertion must be done at sibling_pos + 1.
+on either side of the edge. So the sibling insertion must be done at sibling_pos + 1.
 """
 function sibling_location(l::Lattice, tile_id::Int, edge::Int, n::Int)
     cedge = corresponding_edge(l, tile_id, edge)
@@ -280,13 +280,6 @@ function prev_anyon(l::Lattice, tile_id::Int)
     tiles = anyon_tiles(l, curve_id)
     idx = findfirst(==(tile_id), tiles)
     idx == 1 ? nothing : tiles[idx - 1]
-end
-
-"""
-
-"""
-function contains_nontrivial_charge(l::Lattice, tile_id::Int, cp_id::Int)
-
 end
 
 ###############################################################################
