@@ -331,6 +331,28 @@ function u_turn_cp_ids(t::Tile)
     u_turns
 end
 
+"""
+Return whether the curvepiece hugs any corner in `t`.
+
+If E1 and E2 are two adjacent (going clockwise) edges in `t` which meet at a corner
+A, then `cp_id` hugs A if its endpoints are the last on E1 and first on E2. In
+other words, it hugs A if there are no endpoints between its endpoints and A.
+"""
+function hugs_corner(t::Tile, cp_id::Int)
+    cp = curvepiece(t, cp_id)
+    ep1 = cp.endpoint1
+    ep2 = cp.endpoint2
+    ep1 isa EdgeEndpoint && ep2 isa EdgeEndpoint || return false
+    # clockwise and counterclockwise cases respectively
+    if next_edge(t, ep1.edge) == ep2.edge
+        ep1.pos == num_edge_erefs(t, ep1.edge) && ep2.pos == 1 && return true
+    end
+    if next_edge(t, ep2.edge) == ep1.edge
+        ep2.pos == num_edge_erefs(t, ep2.edge) && ep1.pos == 1 && return true
+    end
+    false
+end
+
 """Returns the `Curvepiece` with id `cp_id` inside of `t`."""
 @inline curvepiece(t::Tile, cp_id::Int) = t._curvepieces[cp_id]
 

@@ -18,7 +18,7 @@ export ordered_erefs, erefs_between, unpaired_erefs
 # endpoints
 export endpoint, cp_partner_type, tile_partner
 # curvepieces
-export curvepiece_ids, anyon_cp_ids, partner_cp_id, u_turn_cp_ids
+export curvepiece_ids, anyon_cp_ids, partner_cp_id, u_turn_cp_ids, hugs_corner
 export curvepiece, is_anyon_curvepiece, anyon_curve_id, anyon_count
 export calculate_nesting_hierarchy
 include("tile/tile.jl")
