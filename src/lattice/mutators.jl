@@ -84,8 +84,6 @@ first endpoint and N's second endpoint.
  curvepiece, or that its endpoints are adjacent and thus removing it is valid.
  This validation is left to the caller, and calling this function on an invalid
  `cref` will result in undefined behavior.
-
- Removing a u-turn in one tile may create a u-turn in another tile if
 """
 function _remove_u_turn(l::Lattice, cref::CurvepieceRef)
     t1 = get_tile(l, cref.tile_id)
@@ -133,12 +131,16 @@ and its endpoints will be adjacent, making it removable.
 
 Therefore, if we remove the u-turn curvepieces in order of increasing nesting order,
 starting at 1, all of our removals will be valid.
+
+Returns a set containing the ids of any tiles whose internal states were modified
+by this operation.
 """
 function _remove_u_turns(l::Lattice, tile_id::Int)
     t = get_tile(l, tile_id)
+    u_turns = u_turn_cp_ids(t)
+    isempty(u_turns) && return Set{Int}()
     modified = Set{Int}([tile_id])
     nesting = calculate_nesting_hierarchy(t)
-    u_turns = u_turn_cp_ids(t)
     sort!(u_turns, by = cp_id -> nesting[cp_id][1])
     for cp_id in u_turns
         cref = CurvepieceRef(tile_id, cp_id)
@@ -217,21 +219,15 @@ function _remove_u_bend(l::Lattice, cref::CurvepieceRef)
 end
 
 """
-Remove all removable u-bends from a tile.
-"""
-function _remove_u_bends(l::Lattice, cref1::CurvepieceRef, cref2::CurvepieceRef)
-
-end
-
-"""
-Identifies all u-bends in a tile `tile_id` by checking each corner of the tile
-against the u-bend criteria. See `_remove_u_bend` for a description of u-bends.
+Identifies all removable u-bends in a tile `tile_id` by checking each corner of
+the tile against the u-bend criteria. See `_remove_u_bend` for a description of
+u-bends.
 
 Iterate clockwise through the corners A i.e. adjacent edges (E1, E2) of the tile,
 and for each one check if there is a curvepiece endpoint at the last position on
 E1. If so, determine if the sibling curvepiece U in T1 hugs A. If so, determine
 if the sibling curvepiece V in T2 of U hugs A. If so, the curvepiece the original
-curvepiece endpoint on E1 belongs to is the start of a u-bend.
+curvepiece endpoint on E1 belongs to is the start of a removable u-bend.
 """
 function _find_u_bends(l::Lattice, tile_id::Int)
     t = get_tile(l, tile_id)
@@ -253,17 +249,44 @@ function _find_u_bends(l::Lattice, tile_id::Int)
 end
 
 """
-Removes all U-turns and trivial bends from all curve diagrams, running to fixed point.
+Remove all removable u-bends from a tile.
 
-A U-turn is a curvepiece whose two edge endpoints are on the same edge of a tile (a "cup"
-or "cap"). A trivial bend is a pair of curvepieces crossing the same shared edge in opposite
-directions with no topological content between them.
+Returns a set containing the ids of any tiles whose internal states were modified
+by this operation.
+"""
+function _remove_u_bends(l::Lattice, tile_id::Int)
+    modified = Set{Int}()
+    while true
+        u_bends = _find_u_bends(l, tile_id)
+        isempty(u_bends) && break
+        push!(modified, tile_id)
+        for p_cref in u_bends
+            u_cref = next_curvepiece(l, p_cref)
+            v_cref = next_curvepiece(l, u_cref)
+            push!(modified, u_cref.tile_id)
+            push!(modified, v_cref.tile_id)
+            _remove_u_bend(l, p_cref)
+        end
+    end
+    modified
+end
 
-Runs iteratively until no further simplifications are possible, since removing one U-turn
-may expose another.
+### SIMPLIFICATION ###
+
+"""
+Removes all u-turns and u-bends from the lattice.
+
+Runs iteratively until no further simplifications are possible, since one simplification
+may make another possible.
 """
 function simplify!(l::Lattice)
-    # TODO
+    worklist = Set{Int}(1:num_tiles(l))
+    while !isempty(worklist)
+        tile_id = pop!(worklist)
+        modified = _remove_u_bends(l, tile_id) ∪ _remove_u_turns(l, tile_id)
+        delete!(modified, tile_id)
+        union!(worklist, modified)
+    end
 end
 
 ###############################################################################
