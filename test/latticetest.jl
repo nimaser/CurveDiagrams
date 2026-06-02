@@ -81,6 +81,8 @@ end
     @test is_deleted(l, cid1)
     @test !is_deleted(l, cid2)
     @test curve_ids(l) == Int[cid2]
+    # tiles_in
+    @test tiles_in(l, cid2) == Set([2])
 end
 
 @testset "Lattice curve diagram curvepieces" begin

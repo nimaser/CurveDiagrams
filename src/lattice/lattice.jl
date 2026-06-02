@@ -111,6 +111,10 @@ A deleted id will never be reallocated by `_allocate_curve_id!`.
 """
 is_deleted(l::Lattice, curve_id::Int) = isempty(l._curvediagrams[curve_id])
 
+"""Return the set of tiles containing curvepieces from `curve_id`."""
+tiles_in(l::Lattice, curve_id::Int) =
+    Set{Int}(cref.tile_id for cref in get_curvediagram(l, curve_id))
+
 ### ENDPOINTS ###
 
 """
@@ -230,8 +234,16 @@ end
 """
 Function to get the tiles which contain anyons on a specific curve.
 
-Returns a vector of `tile_id`s for tiles which contain anyons which are on the curve with `curve_id`.
-Tiles are returned in path order.
+Returns a vector of `tile_id`s for tiles which contain anyons which are on the
+curve with `curve_id`. Tiles are returned in path order.
+
+If this function turns out to be bottlenecking, a slightly more efficient solution
+would be to scan the curve diagram's curvepieces with a window size of two, and
+any time two successive curvepieces had the same tile_id, add them to the set.
+This is because the only time this condition can be met is when there are two
+anyon-to-edge curvepieces, meaning that tile's anyon is on the curve diagram.
+The first and last anyons' tiles would need to be in the initial set as a special
+case.
 """
 function anyon_tiles(l::Lattice, curve_id::Int)
     ids = Int[] # returned result, containing tile_ids

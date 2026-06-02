@@ -317,6 +317,8 @@ end
 """
 Return a list of curvepiece ids for the u-turn curvepieces in `t`. A u-turn
 curvepiece is an edge-to-edge curvepiece with both endpoints on the same edge.
+
+This function is `O(N)` where `N` is the number of curvepieces in the tile.
 """
 function u_turn_cp_ids(t::Tile)
     u_turns = Int[]
@@ -431,6 +433,20 @@ assignments may depend on which endpoint around the tile the adjacency scans are
 
 The maximum enclosing number for a curvepiece is the largest nesting number of
 any curvepiece which encloses it, or if no curvepiece encloses it, its own nesting number.
+
+The complexity of this function is as follows:
+- in the worst case, with `n` edge endpoints, all curvepieces are nested, requiring `n/2` passes
+through the outer loop to assign all `n/2` curvepieces
+- the inner loop is `O(n)` on each pass, considering building `unassigned`, iterating through
+1:m, and iterating through the `between` loop are all `O(n)`
+- therefore, it is `O(n^2)` in time complexity
+- in terms of space complexity, `all_edge_erefs`, `assigned`, `nesting`, `max_enc`, `ee_ids`
+are all `O(n)` persistent datastructures in the function
+- `unassigned`, `consumed`, and `newly_assigned` are also all `O(n)` datastructures, whose memory
+is reallocated at the beginning of each loop
+- therefore, it is `O(n)` in space complexity
+I'm not exactly sure how memory allocations play into things, but there may be some significant
+effects there...hopefully not.
 """
 function calculate_nesting_hierarchy(t::Tile)
     # get all edge-to-edge curvepiece ids
@@ -504,7 +520,7 @@ end
 # INTERNAL MUTATORS
 ###############################################################################
 
-"""Returns the next cp_id to be assigned."""
+"""Return the next cp_id to be assigned."""
 function _allocate_cp_id!(t::Tile)
     id = t._next_cp_id[]
     t._next_cp_id[] += 1
@@ -512,39 +528,43 @@ function _allocate_cp_id!(t::Tile)
 end
 
 """
-Replaces the stored location (edge and pos) of one endpoint within a `Curvepiece`.
+Set the stored location of a `CurvepieceEndpoint` of a `Curvepiece`.
 
-This function should be called for `EndpointRefs` whose locations have been shifted
-as a result of other curvepiece endpoints being added/moved/removed. This is
-necessary because endpoint locations are relative to all of the endpoints present
-rather than being absolute. Note that this means `eref` must point to an `EdgeEndpoint`,
-as `AnyonEndpoint`s do not have a location.
+There are two cases:
+- `eref` refers to an `EdgeEndpoint`, whose edge and position are then set, while
+its direction is preserved
+- `eref` refers to an `AnyonEndpoint`, which is converted to an `EdgeEndpoint` with
+the specified edge and position values; its direction is set in accordance with the
+other edge endpoint so that the curvepiece is valid (ie the direction is the opposite
+of the extant edge endpoint)
 
-The direction or endpoint type (edge vs anyon) of the endpoint indicated by `eref`,
-and its partner, does not change as a result of mutating other curvepieces. Therefore,
-the ordering of the endpoints in the curvepiece does not change, so no revalidation
+This function is useful to call on `EndpointRef`s whose locations have been
+shifted along an edge as a result of other curvepiece endpoints being added/
+moved/removed. Updating the location after these shifts is necessary because
+endpoint locations are relative to all endpoints present rather than absolute.
+
+This function does not change the direction of a curvepiece. Therefore, the
+ordering of the endpoints in the curvepiece does not change, so no revalidation
 or reordering is needed.
+
+Returns nothing.
 """
 function _set_endpoint_location!(t::Tile, eref::EndpointRef, edge::Int, pos::Int)
     cp = curvepiece(t, eref.cp_id)
-    ep::EdgeEndpoint = endpoint(cp, eref)
-    if eref.endpoint_idx == 1
-        t._curvepieces[eref.cp_id] = Curvepiece(cp.curve_id, cp.anyon_count,
-            EdgeEndpoint(ep.direction, edge, pos), cp.endpoint2)
+    ep = endpoint(cp, eref)
+    if ep isa EdgeEndpoint
+        # the new endpoint has the same direction but different location
+        new_ep = EdgeEndpoint(ep.direction, edge, pos)
     else
-        t._curvepieces[eref.cp_id] = Curvepiece(cp.curve_id, cp.anyon_count,
-            cp.endpoint1, EdgeEndpoint(ep.direction, edge, pos))
+        # find new ep's direction based on whether the anyon endpoint was first/second
+        direction = eref.endpoint_idx == 1 ? IN : OUT
+        new_ep = EdgeEndpoint(direction, edge, pos)
     end
+    # find which endpoint eref refers to, then replace that one with the new endpoint
+    eps = eref.endpoint_idx == 1 ? (new_ep, cp.endpoint2) : (cp.endpoint1, new_ep)
+    t._curvepieces[eref.cp_id] = Curvepiece(cp.curve_id, cp.anyon_count, eps...)
+    nothing
 end
-
-"""
-Replaces the stored pos of an endpoint within a `Curvepiece`.
-
-Convenience wrapper for _set_endpoint_location! for the case when an endpoint has been
-shifted along an edge, so only the pos needs to be updated.
-"""
-_set_endpoint_pos!(t::Tile, eref::EndpointRef, new_pos::Int) =
-    _set_endpoint_location!(t, eref, (endpoint(t, eref)::EdgeEndpoint).edge, new_pos)
 
 """Insert `eref` into edge `edge` at position `pos`, shifting subsequent endpoint locations up."""
 function _insert_edge_eref!(t::Tile, eref::EndpointRef, edge::Int, pos::Int)

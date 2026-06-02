@@ -1,5 +1,5 @@
-import CurveDiagrams: _allocate_cp_id!, _set_endpoint_location!, _set_endpoint_pos!,
-    _insert_edge_eref!, _remove_edge_eref!, _push_anyon_eref!
+import CurveDiagrams: _allocate_cp_id!, _set_endpoint_location!,
+    _insert_edge_eref!, _remove_edge_eref!, _push_anyon_eref!, _remove_anyon_eref!
 
 @testset "EndpointRef" begin
     # random filler values that shouldn't affect test results
@@ -375,13 +375,13 @@ end
         @test endpoint(t, EndpointRef(1, 2)) == EdgeEndpoint(OUT, 2, 1)  # partner unchanged
     end
 
-    # _set_endpoint_pos! — only pos changes, edge and direction preserved
+    # _set_endpoint_location! — converts anyon endpoint to edge endpoint, direction inferred correctly
     let t = Tile(3)
-        t._curvepieces[1] = Curvepiece(1, 0, EdgeEndpoint(IN, 1, 1), EdgeEndpoint(OUT, 2, 1))
-        _set_endpoint_pos!(t, EndpointRef(1, 1), 2)
-        ep = endpoint(t, EndpointRef(1, 1))
-        @test ep.edge == 1 && ep.pos == 2 && ep.direction == IN
-        @test endpoint(t, EndpointRef(1, 2)) == EdgeEndpoint(OUT, 2, 1)  # partner unchanged
+        t._curvepieces[1] = Curvepiece(1, 0, EdgeEndpoint(IN, 1, 1), AnyonEndpoint(IN))
+        _set_endpoint_location!(t, EndpointRef(1, 2), 3, 2)
+        ep = endpoint(t, EndpointRef(1, 2))::EdgeEndpoint
+        @test ep.edge == 3 && ep.pos == 2 && ep.direction == OUT
+        @test endpoint(t, EndpointRef(1, 1)) == EdgeEndpoint(IN, 1, 1)  # partner unchanged
     end
 
     # _insert_edge_eref! - inserts eref and shifts existing ones up
@@ -429,6 +429,18 @@ end
         _push_anyon_eref!(t, EndpointRef(2, 1))
         @test num_anyon_erefs(t) == 2
         @test_throws ArgumentError _push_anyon_eref!(t, EndpointRef(3, 2)) # 3rd fails
+    end
+
+    # _remove_anyon_eref!
+    let t = Tile(3)
+        t._curvepieces[1] = Curvepiece(1, 1, EdgeEndpoint(IN, 1, 1), AnyonEndpoint(IN))
+        t._curvepieces[2] = Curvepiece(2, 1, AnyonEndpoint(OUT), EdgeEndpoint(OUT, 2, 1))
+        _push_anyon_eref!(t, EndpointRef(1, 2))
+        _push_anyon_eref!(t, EndpointRef(2, 1))
+        _remove_anyon_eref!(t, EndpointRef(1, 2))
+        @test num_anyon_erefs(t) == 1
+        _remove_anyon_eref!(t, EndpointRef(2, 1))
+        @test num_anyon_erefs(t) == 0
     end
 end
 
@@ -742,10 +754,15 @@ end
         @test_throws ArgumentError move_endpoint!(t, EndpointRef(id4, 2), 1, 2)
     end
 
-    # can't move an anyon endpoint
+    # can move an anyon endpoint to an edge position
     let t = Tile(4)
         id1 = insert_curvepiece!(t, 10, 1, 1, 1, IN)
-        @test_throws Exception move_endpoint!(t, EndpointRef(id1, 2), 2, 1)
+        move_endpoint!(t, EndpointRef(id1, 2), 2, 1)
+        cp = curvepiece(t, id1)
+        ep2 = cp.endpoint2::EdgeEndpoint
+        @test ep2.edge == 2 && ep2.pos == 1 && ep2.direction == OUT
+        @test num_anyon_erefs(t) == 0
+        @test num_edge_erefs(t, 2) == 1
     end
 
     # setting curvepiece metadata correctly

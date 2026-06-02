@@ -31,7 +31,7 @@ export CurvepieceRef, TileEdgeRef, Lattice
 # geometry
 export num_tiles, get_tile, corresponding_edge, shared_edge
 # curve diagrams
-export num_curves, curve_ids, get_curvediagram, is_deleted
+export num_curves, curve_ids, get_curvediagram, is_deleted, tiles_in
 # endpoints
 export sibling_location, sibling_insert_pos, sibling_eref
 # curvepieces
@@ -39,6 +39,9 @@ export find_cref_index, prev_curvepiece, next_curvepiece
 # anyons
 export anyon_tiles, next_anyon, prev_anyon
 include("lattice/lattice.jl")
+
+export create_pair!
+include("lattice/mutators.jl")
 
 export visualize!, visualize
 function visualize! end

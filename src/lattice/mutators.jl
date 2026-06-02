@@ -54,436 +54,257 @@ function create_pair!(l::Lattice, tile_id1::Int, tile_id2::Int, pos::Int=1)
     curve_id, action
 end
 
-###############################################################################
-# CURVE DIAGRAM SIMPLIFICATION
-###############################################################################
-
-### U-TURNS ###
-
 """
-Remove the specified u-turn. A u-turn is a sequence of curvepieces in a curve
-diagram which enters and then immediately exits a tile via the same edge.
+Swap two sequential anyons on the same curve diagram which are in neighboring tiles.
+The anyons must be 'directly connected', meaning that between them are exactly two
+edge-to-anyon curvepieces, one in `tile_id1` and one in `tile_id2`, which connect
+to each other at the shared edge. The value of `dir` indicates whether to carry out
+a (+1) 'counterclockwise' or (-1) 'clockwise' swap.
 
-In particular, a u-turn is a sequence of three curvepieces P, U, and N, where
-U (identified by `cref`) is an edge-to-edge curvepiece whose two endpoints are
-on the same edge E of a tile T1, and P and N are the previous and next
-curvepieces in U's curve diagram. Given this, P and N must be in the same tile
-T2 as each other, where T2 is a neighbor of T1.
+Please note: a swap does not change the physical state of the lattice, but instead
+changes the basis the lattice quantum state is written in. In other words, we are
+only changing the ordering of anyons on a curve diagram, not the lattice locations
+of any anyons.
 
-A u-turn's removal is topologically trivial (i.e. valid) if U's endpoints are
-adjacent to each other on E. This is because U can then be 'pulled into' T2
-across E without intersecting any other curvepieces, so that the trajectory of
-the PUN sequence is entirely contained in T2. This trajectory, not intersecting
-any curvepieces, is itself just a curvepiece in T2.
+To clarify the setup:
+- let T1 and T2 be the tiles containing the two anyons A1 and A2 respectively
+- A1 and A2 are connected by a sequence, M, of two anyon-to-edge curvepieces
+- M is directed from A1 to A2
+- let P be the curvepiece before M in the curve diagram, if it exists; i.e. P is
+the other anyon-to-edge curvepiece in T1
+- let N be the curvepiece after M in the curve diagram, if it exists; i.e. N is
+the other anyon-to-edge curvepiece in T2
+- let E1 be the edge in T1 which hosts P's edge endpoint
+- let E2 be the edge in T2 which hosts N's edge endpoint
+- let E be the edge shared between T1 and T2
 
-Therefore, the result of the u-turn removal operation is that U is deleted and
-P and N are merged into a single curvepiece C in T2, whose endpoints are P's
-first endpoint and N's second endpoint.
+So the entire sequence of curvepieces is:
+- P goes E1 -> A1
+- M goes A1 -> E -> A2
+- N goes A2 -> E2
 
- **Important**: this function **does not** check that `cref` is a valid U-turn
- curvepiece, or that its endpoints are adjacent and thus removing it is valid.
- This validation is left to the caller, and calling this function on an invalid
- `cref` will result in undefined behavior.
-"""
-function _remove_u_turn(l::Lattice, cref::CurvepieceRef)
-    t1 = get_tile(l, cref.tile_id)
-    curve_id = curvepiece(t1, cref.cp_id).curve_id
-    # P and N are both in T2 (the neighbor whose shared edge holds U's endpoints)
-    p_cref = prev_curvepiece(l, cref)
-    n_cref = next_curvepiece(l, cref)
-    t2 = get_tile(l, p_cref.tile_id)
-    # look up T2's erefs for the shared-edge endpoints of P and N before any mutation
-    _, eref_p = sibling_eref(l, cref.tile_id, EndpointRef(cref.cp_id, 1))
-    _, eref_n = sibling_eref(l, cref.tile_id, EndpointRef(cref.cp_id, 2))
-    # position of U in the curve diagram (P is at pos_u-1, N at pos_u+1)
-    pos_u = find_cref_index(l, curve_id, cref)
-    # remove U from T1
-    remove_curvepiece!(t1, cref.cp_id)
-    # merge P and N in T2; returns the new cp_id for C
-    new_cp_id = merge_curvepieces!(t2, eref_p, eref_n)
-    # replace the three consecutive crefs (P, U, N) with one cref for C
-    _remove_cref!(l, curve_id, pos_u + 1)  # remove N (highest index first)
-    _remove_cref!(l, curve_id, pos_u)      # remove U
-    _remove_cref!(l, curve_id, pos_u - 1)  # remove P
-    _insert_cref!(l, curve_id, pos_u - 1, CurvepieceRef(p_cref.tile_id, new_cp_id))
-end
+If A1 is the first anyon on the curve diagram, P will not be present. If A2
+is the last anyon on the curve diagram, N will not be present. The swap consists
+of three discrete steps, one to modify each of P, M, and N respectively.
+- M is always guaranteed to be present, and we just reverse its direction to get Mr
+- P's anyon endpoint is 'detached' from A1 and pulled/stretched alongside M to
+attach to A2; this requires crossing E, and therefore P becomes two curvepieces,
+P1, which is an edge-to-edge curvepiece going from E1 to E, and P2, an edge-to-anyon
+curvepiece going from E to A2
+- N does the same as P, except it is detached from A2, pulled alongside M, and
+attached to A1
 
-"""
-Remove all removable u-turns from a tile. A removable u-turn curvepiece is one
-whose endpoints are adjacent on the same edge E. See `u_turn_cp_ids` and
-`_remove_u_turn` for more information.
+Therefore, after the swap, the sequence of curvepieces in the curve diagram is:
+- P1 from E1 -> E
+- P2 from E -> A2
+- Mr from A2 -> E -> A1
+- N1 from A1 -> E
+- N2 from E -> E2
 
-Any curvepiece with a nesting number of 1 must have adjacent endpoints (see
-`calculate_nesting_hierarchy` for more information on nesting numbers). Any
-u-turn curvepiece has both endpoints on the same edge. Thus any u-turn curvepiece
-with a nesting number of 1 is immediately removable.
+P1 and P2 will only be present if P was present initially. N1 and N2 will only be
+present if N was present initially.
 
-If we remove all of the u-turn curvepieces with a nesting number of 1, the
-u-turn curvepieces of nesting number 2 will now have nesting number 1 and will
-thus be removable. Generalization via induction:
-- Any u-turn curvepiece with a nesting number of N has both endpoints on an edge
-E, and therefore has the property that all curvepieces which it encloses (which
-have nesting numbers in 1...N-1) must also in turn have both of their endpoints
-on E. Therefore these enclosed curvepieces must be u-turn curvepieces themselves.
-- So if we remove all u-turn curvepieces of nesting numbers 1 through N-1, the
-u-turn curvepiece with nesting number N will no longer enclose any curvepieces,
-and its endpoints will be adjacent, making it removable.
+P and N are pulled alongside M on 'opposite sides'. That is, if we orient the
+lattice so that M is horizontal, one goes above M, and one goes below it. In
+other words, the position of the edge endpoints of P2 and N2 will be at +1
+and -1 offsets from the position of the edge endpoint in the middle of M.
+Which one is +1 and which one is -1 depends on the value of `dir`: `dir` sets
+the relative position of P2's edge endpoint.
 
-Therefore, if we remove the u-turn curvepieces in order of increasing nesting order,
-starting at 1, all of our removals will be valid.
-
-Returns a set containing the ids of any tiles whose internal states were modified
-by this operation.
-"""
-function _remove_u_turns(l::Lattice, tile_id::Int)
-    t = get_tile(l, tile_id)
-    u_turns = u_turn_cp_ids(t)
-    isempty(u_turns) && return Set{Int}()
-    modified = Set{Int}([tile_id])
-    nesting = calculate_nesting_hierarchy(t)
-    sort!(u_turns, by = cp_id -> nesting[cp_id][1])
-    for cp_id in u_turns
-        cref = CurvepieceRef(tile_id, cp_id)
-        push!(modified, prev_curvepiece(l, cref).tile_id)
-        _remove_u_turn(l, cref)
-    end
-    modified
-end
-
-### U-BENDS ###
-
-"""
-Remove the specified u-bend. A u-bend is a sequence of curvepieces in a curve
-diagram which, starting in a tile O, exits O via an edge E1, passes through
-two intermediate tiles, then reenters O via an edge E2 which is adjacent to E1.
-
-To clarify the geometry, let
-- T1 be the tile neighboring O via E1
-- T2 be the tile neighboring O via E2
-
-Note that because E1 and E2 are adjacent, T1 and T2 must be neighbors via some
-edge E. Let A be the lattice vertex shared between E1, E2, and E, or in other
-words the vertex where tiles O, T1, and T2 meet.
-
-The u-bend goes from O -> T1 -> T2 -> O by crossing E1, E, and E2, in that order.
-Put differently, the u-bend exits O, circles around A by passing through T1 and T2,
-then reenters O.
-
-In terms of curvepieces: a u-bend is a sequence of four curvepieces P, U, V, and N,
-where P (identified by `cref`) and N live in O, while U and V are both edge-to-edge
-curvepieces living in T1 and T2 respectively. Endpoint locations:
-- P's second and U's first are on E1
-- U's second and V's first are on E
-- V's second and N's first are on E2
-
-A u-bend's removal is topologically trivial (i.e. valid) if it 'tightly' circles A,
-meaning that there are no curvepieces between the u-bends' and A. That is, P's, U's,
-and V's second endpoint must be right next to A on E1, E, and E2 respectively. This
-is because U and V can then be 'pulled into' O across A without intersecting other
-curvepieces, so that the trajectory of the PUVN sequence is entirely contained in O.
-This trajectory, not intersecting any curvepieces, is itself just a curvepiece in O.
-
-Therefore, the result of the u-bend removal operation is that U and V are deleted
-and P and N are merged into a single curvepiece C in O, whose endpoints are P's
-first endpoint and N's second endpoint.
-
- **Important**: this function **does not** check that `cref` starts a valid u-bend,
- or that removing it is valid. This validation is left to the caller, and calling
- this function on an invalid `cref` will result in undefined behavior.
-"""
-function _remove_u_bend(l::Lattice, cref::CurvepieceRef)
-    o = get_tile(l, cref.tile_id)
-    curve_id = curvepiece(o, cref.cp_id).curve_id
-    # U, V, N follow P sequentially in the curve diagram
-    u_cref = next_curvepiece(l, cref)
-    v_cref = next_curvepiece(l, u_cref)
-    n_cref = next_curvepiece(l, v_cref)
-    t1 = get_tile(l, u_cref.tile_id)
-    t2 = get_tile(l, v_cref.tile_id)
-    # erefs in O to consume: P's OUT (endpoint2) and N's IN (endpoint1)
-    eref_p_out = EndpointRef(cref.cp_id, 2)
-    eref_n_in  = EndpointRef(n_cref.cp_id, 1)
-    # position of P in the curve diagram (U at pos+1, V at pos+2, N at pos+3)
-    pos_p = find_cref_index(l, curve_id, cref)
-    # remove U and V from their tiles
-    remove_curvepiece!(t1, u_cref.cp_id)
-    remove_curvepiece!(t2, v_cref.cp_id)
-    # merge P and N in O; returns the new cp_id for C
-    new_cp_id = merge_curvepieces!(o, eref_p_out, eref_n_in)
-    # replace the four consecutive crefs (P, U, V, N) with one cref for C
-    _remove_cref!(l, curve_id, pos_p + 3)  # remove N
-    _remove_cref!(l, curve_id, pos_p + 2)  # remove V
-    _remove_cref!(l, curve_id, pos_p + 1)  # remove U
-    _remove_cref!(l, curve_id, pos_p)      # remove P
-    _insert_cref!(l, curve_id, pos_p, CurvepieceRef(cref.tile_id, new_cp_id))
-end
-
-"""
-Identifies all removable u-bends in a tile `tile_id` by checking each corner of
-the tile against the u-bend criteria. See `_remove_u_bend` for a description of
-u-bends.
-
-Iterate clockwise through the corners A i.e. adjacent edges (E1, E2) of the tile,
-and for each one check if there is a curvepiece endpoint at the last position on
-E1. If so, determine if the sibling curvepiece U in T1 hugs A. If so, determine
-if the sibling curvepiece V in T2 of U hugs A. If so, the curvepiece the original
-curvepiece endpoint on E1 belongs to is the start of a removable u-bend.
-"""
-function _find_u_bends(l::Lattice, tile_id::Int)
-    t = get_tile(l, tile_id)
-    result = CurvepieceRef[]
-    for e1 in 1:num_edges(t)
-        has_edge_erefs(t, e1) || continue
-        # last endpoint on E1 belongs to P; its sibling in T1 is U's endpoint on E1'
-        last_eref = edge_eref(t, e1, num_edge_erefs(t, e1))
-        t1_id, u_eref = sibling_eref(l, tile_id, last_eref)
-        t1 = get_tile(l, t1_id)
-        hugs_corner(t1, u_eref.cp_id) || continue
-        # U's other endpoint gives V's sibling in T2
-        t2_id, v_eref = sibling_eref(l, t1_id, cp_partner(u_eref))
-        t2 = get_tile(l, t2_id)
-        hugs_corner(t2, v_eref.cp_id) || continue
-        push!(result, CurvepieceRef(tile_id, last_eref.cp_id))
-    end
-    result
-end
-
-"""
-Remove all removable u-bends from a tile.
-
-Returns a set containing the ids of any tiles whose internal states were modified
-by this operation.
-"""
-function _remove_u_bends(l::Lattice, tile_id::Int)
-    modified = Set{Int}()
-    while true
-        u_bends = _find_u_bends(l, tile_id)
-        isempty(u_bends) && break
-        push!(modified, tile_id)
-        for p_cref in u_bends
-            u_cref = next_curvepiece(l, p_cref)
-            v_cref = next_curvepiece(l, u_cref)
-            push!(modified, u_cref.tile_id)
-            push!(modified, v_cref.tile_id)
-            _remove_u_bend(l, p_cref)
-        end
-    end
-    modified
-end
-
-### SIMPLIFICATION ###
-
-"""
-Removes all u-turns and u-bends from the lattice.
-
-Runs iteratively until no further simplifications are possible, since one simplification
-may make another possible.
-"""
-function simplify!(l::Lattice)
-    worklist = Set{Int}(1:num_tiles(l))
-    while !isempty(worklist)
-        tile_id = pop!(worklist)
-        modified = _remove_u_bends(l, tile_id) ∪ _remove_u_turns(l, tile_id)
-        delete!(modified, tile_id)
-        union!(worklist, modified)
-    end
-end
-
-###############################################################################
-# ANYON REORDERING
-###############################################################################
-
-"""
-Swap two sequential anyons on the same curve diagram which are in neighboring tiles. The
-anyons must be 'directly connected', meaning that between them are exactly two edge-to-anyon
-curvepieces, one in `tile_id1` and one in `tile_id2`, which connect to each other at the
-shared edge. The value of `dir` indicates whether the new curve diagram should be a (+1)
-'counterclockwise' or (-1) 'clockwise' swap.
-
-The swap can be visualized as first identifying the two curvepieces which directly connect
-the two anyons and reversing their directions, then disconnecting the other (up to) two
-curvepieces which connect those anyons to the rest of the curvediagram from the anyons.
-Then stretch the disconnected ends either clockwise or counterclockwise around the two
-anyons to connect to the anyon they were not connected to originally. This will require
-stretching them across the shared edge between the tiles, and thus each single edge-to-anyon
-curvepiece will become an edge-to-edge curvepiece chained to an edge-to-anyon curvepiece.
-
-Preconditions:
-- `tile_id1` and `tile_id2` share exactly one edge
-- both tiles have anyons on the same curve diagram
-- no other anyon lies between them along the curve
-- `dir` is `+1` or `-1`
+This function throws an error if:
+- the tiles provided do not share an edge
+- A1, A2, and M are not as described above
 
 Returns `action = [3, curve_id, seg, dir]`, where `seg` is the segment index between the
 two anyons before the swap.
 """
 function swap!(l::Lattice, tile_id1::Int, tile_id2::Int, dir::Int)
-    # # validation
-    # t1 = get_tile(l, tile_id1)
-    # t2 = get_tile(l, tile_id2)
-    # shared = shared_edge(l, tile_id1, tile_id2)
-    # shared != nothing || throw(ArgumentError("tiles $tile_id1 and $tile_id2 do not share an edge"))
-    # e1, e2 = shared
-    # cid1 = anyon_curve_id(t1)
-    # cid2 = anyon_curve_id(t2)
-    # cid1 != nothing || throw(ArgumentError("tile $tile_id1's anyon not on a curve diagram"))
-    # cid2 != nothing || throw(ArgumentError("tile $tile_id2's anyon not on a curve diagram"))
-    # cid1 == cid2 || throw(ArgumentError("tile $tile_id1 and $tile_id2's anyons on differing curve diagrams $cid1 and $cid2"))
-    # curve_id = cid1
-    # p_anyon_tile = prev_anyon(l, tile_id1)
-    # n_anyon_tile = next_anyon(l, tile_id1)
-    # p_anyon_tile == tile_id2 || n_anyon_tile == tile_id2 ||
-    #     throw(ArgumentError("tile $tile_id1 and $tile_id2's anyons not sequential on their curve diagram"))
-    # # reorder so tile_id1's anyon comes before tile_id2's in the diagram
-    # if p_anyon_tile == tile_id2
-    #     tile_id1, tile_id2 = tile_id2, tile_id1
-    #     t1, t2 = t2, t1
-    #     e1, e2 = e2, e1
-    # end
-    # # identify the two curvepieces that go between the two anyons
-    # cp_ids1 = anyon_cp_ids(t1)
-    # cp_ids2 = anyon_cp_ids(t2)
-    # cp1 = cp_ids1[argmax(cp_id -> curvepiece(t1, cp_id).anyon_count, cp_ids1)]
-    # cp2 = cp_ids2[argmin(cp_id -> curvepiece(t2, cp_id).anyon_count, cp_ids2)]
-    # anyon_count = curvepiece(t1, cp1).anyon_count
-    # # check that the two curvepieces are siblings
-    # cp1_edge_eref = cp_partner(anyon_eref(t1, cp1))
-    # _, sib_eref = sibling_eref(l, tile_id1, cp1_edge_eref)
-    # sib_eref.cp_id == cp2 || throw(ArgumentError("tiles $tile_id1 and $tile_id2 anyons are not directly connected"))
-    # # get the other edge-to-anyon in each tile which doesn't connect the two anyons
-    # cp1_other = partner_cp_id(t1, cp1)  # nothing if cp1 is the only anyon cp in t1
-    # cp2_other = partner_cp_id(t2, cp2)  # nothing if cp2 is the only anyon cp in t2
-    # # flip the direction of the connecting segment
-    # flip_direction!(t1, cp1)
-    # flip_direction!(t2, cp2)
-    # # remove the nonconnecting edge-to-anyon curvepieces in the tiles, saving their edge endpoints first
-    # if cp1_other !== nothing
-    #     cp1_other_edge_eref = cp_partner(anyon_eref(t1, cp1_other))
-    #     cp1_other_ep = endpoint(t1, cp1_other_edge_eref)::EdgeEndpoint
-    #     remove_curvepiece!(t1, cp1_other)
-    # end
-    # if cp2_other !== nothing
-    #     cp2_other_edge_eref = cp_partner(anyon_eref(t2, cp2_other))
-    #     cp2_other_ep = endpoint(t2, cp2_other_edge_eref)::EdgeEndpoint
-    #     remove_curvepiece!(t2, cp2_other)
-    # end
-    # # get positions of connecting curvepieces and edge-to-edge curvepiece insertion points
-    # p1 = (endpoint(t1, cp_partner(anyon_eref(t1, cp1)))::EdgeEndpoint).pos
-    # p2 = (endpoint(t2, cp_partner(anyon_eref(t2, cp2)))::EdgeEndpoint).pos
-    # e1_insert_ee = p1 + (dir == 1 ? 1 : 0)
-    # e2_insert_ee = p2 + (dir == 1 ? 1 : 0)
-    # _, _, e2_insert_ae = sibling_location(t1, e1, e1_insert_ee)
-    # _, _, e1_insert_ae = sibling_location(t2, e2, e2_insert_ee)
-    # # insert edge-to-edge curvepieces to replace removed curvepieces, with endpoints either clockwise
-    # # or counterclockwise of the edge endpoint of cp1/2 depending on dir
-    # new_cp1_other = nothing
-    # new_cp2_other = nothing
-    # if cp1_other !== nothing
-    #     new_cp1_other = insert_curvepiece!(t1, curve_id, anyon_count - 1,
-    #         cp1_other_ep.edge, cp1_other_ep.pos, e1, e1_insert_ee)
-    # end
-    # if cp2_other !== nothing
-    #     new_cp2_other = insert_curvepiece!(t2, curve_id, anyon_count + 1,
-    #         e2, e2_insert_ee, cp2_other_ep.edge, cp2_other_ep.pos)
-    # end
-    # insert edge-to-anyon curvepieces to connect the edge-to-edge curvepieces just added
-    # in each tile to the anyon in the other tile
-    # claude TODO
+    t1 = get_tile(l, tile_id1)
+    t2 = get_tile(l, tile_id2)
+    shared = shared_edge(l, tile_id1, tile_id2)
+    shared !== nothing || throw(ArgumentError("tiles $tile_id1 and $tile_id2 do not share an edge"))
+    e1, e2 = shared
 
-    # --- Edge positions ---
-    # p1 = position of connectingline1's edge endpoint on e1
-    # p2 = sibling_location(l, tile_id1, e1, p1).pos  (= N_e1 - p1 + 1)
-    # s1 = direction of connectingline1's edge endpoint on e1 (should be OUT)
+    # find M: the anyon cp in each tile whose edge endpoint is on the shared edge
+    m_t1_id = only(cp_id for cp_id in anyon_cp_ids(t1)
+                   if (endpoint(t1, cp_partner(anyon_eref(t1, cp_id)))::EdgeEndpoint).edge == e1)
+    m_t2_id = only(cp_id for cp_id in anyon_cp_ids(t2)
+                   if (endpoint(t2, cp_partner(anyon_eref(t2, cp_id)))::EdgeEndpoint).edge == e2)
 
-    # --- Step 1: flip direction of the connecting segment on both sides ---
-    # connectingline1's edge endpoint: direction flips (OUT → IN or IN → OUT)
-    # connectingline2's edge endpoint: direction flips (opposite of connectingline1's flip)
-    # In Julia this requires removing and re-inserting both cps with flipped edge directions.
+    curve_id = curvepiece(t1, m_t1_id).curve_id
+    seg = curvepiece(t1, m_t1_id).anyon_count
 
-    # --- Step 2: handle a1 (the other anyon cp in t1), if present ---
-    # a1_cp is currently anyon-to-ek in t1 (some edge ek ≠ e1).
-    # It gets detached from t1's anyon and re-routed so its edge-side now crosses e1 too.
-    # A new anyon-to-e2 cp (newlabel_2) is created in t2.
-    #
-    # Concretely:
-    #   ek_ep = a1_cp's EdgeEndpoint (on edge ek, position ek_pos)
-    #   remove a1_cp from t1 (removes both the anyon endpoint and ek edge endpoint)
-    #   re-insert a1_cp as edge-to-edge in t1: (ek, ek_pos) ↔ (e1, new_e1_pos)
-    #     dir == +1 (CCW): new_e1_pos = p1 + 1   (a1 passes UNDER connectingline1)
-    #     dir == -1 (CW):  new_e1_pos = p1        (a1 passes OVER, then p1 increments to p1+1)
-    #   insert newlabel_2_cp in t2 as anyon-to-e2:
-    #     dir == +1 (CCW): e2 position = p2        (before connectingline2, before sign flip)
-    #     dir == -1 (CW):  e2 position = p2 + 1   (after connectingline2)
-    #   newlabel_2_cp gets anyon_count = seg - 1
-    #   t2's anyon list becomes [newlabel_2_cp, connectingline2_cp]
-    #   (if a1 absent: t2's anyon list = just connectingline2_cp)
+    # P = other anyon cp in T1 (if present), N = other anyon cp in T2 (if present)
+    p_id = partner_cp_id(t1, m_t1_id)
+    n_id = partner_cp_id(t2, m_t2_id)
 
-    # --- Step 3: handle a2 (the other anyon cp in t2), if present ---
-    # Symmetric to step 2: a2_cp detaches from t2's anyon, re-routed to also cross e2.
-    # A new anyon-to-e1 cp (newlabel_1) is created in t1.
-    #
-    #   ek2_ep = a2_cp's EdgeEndpoint (on edge ek2, position ek2_pos)
-    #   remove a2_cp from t2
-    #   re-insert a2_cp as edge-to-edge in t2: (ek2, ek2_pos) ↔ (e2, new_e2_pos)
-    #     dir == +1 (CCW): new_e2_pos = p2 + 1  (after connectingline2; p2 may have shifted)
-    #     dir == -1 (CW):  new_e2_pos = p2 - 1  (before connectingline2; p2 may have shifted)
-    #   insert newlabel_1_cp in t1 as anyon-to-e1:
-    #     dir == +1 (CCW): e1 position = p1 - 1  (before connectingline1; p1 may have shifted)
-    #     dir == -1 (CW):  e1 position = p1 + 1  (after connectingline1)
-    #   newlabel_1_cp gets anyon_count = seg + 1
-    #   t1's anyon list becomes [connectingline1_cp, newlabel_1_cp]
-    #   (if a2 absent: t1's anyon list = just connectingline1_cp)
+    # record endpoints and anyon_counts before any mutation
+    p_ep = p_id !== nothing ? (endpoint(t1, cp_partner(anyon_eref(t1, p_id)))::EdgeEndpoint) : nothing
+    ac_p = p_id !== nothing ? curvepiece(t1, p_id).anyon_count : nothing
+    n_ep = n_id !== nothing ? (endpoint(t2, cp_partner(anyon_eref(t2, n_id)))::EdgeEndpoint) : nothing
+    ac_n = n_id !== nothing ? curvepiece(t2, n_id).anyon_count : nothing
 
-    # --- Step 4: update the curve diagram ---
-    # The path segment [i1 .. i2] is replaced (same for BOTH dir values):
-    #   [ (tile_id1, a1_cp),         if a1 present
-    #     (tile_id2, newlabel_2_cp), if a1 present
-    #     (tile_id2, connectingline2_cp),
-    #     (tile_id1, connectingline1_cp),
-    #     (tile_id1, newlabel_1_cp), if a2 present
-    #     (tile_id2, a2_cp) ]        if a2 present
-    # The dir difference is purely in the edge positions (steps 2-3), not the path order.
-    # In Julia: remove CurvepieceRefs at positions i1..i2, insert the above list at i1.
+    # record diagram positions before any mutation
+    m_t1_cref  = CurvepieceRef(tile_id1, m_t1_id)
+    m_t2_cref  = CurvepieceRef(tile_id2, m_t2_id)
+    start_cref = p_id !== nothing ? CurvepieceRef(tile_id1, p_id) : m_t1_cref
+    pos_start  = find_cref_index(l, curve_id, start_cref)
+    n_old      = (p_id !== nothing ? 1 : 0) + 2 + (n_id !== nothing ? 1 : 0)
 
-    # return [3, curve_id, seg, dir]
+    # step 1: reverse M in both tiles
+    reverse_curvepiece!(t1, m_t1_id)
+    reverse_curvepiece!(t2, m_t2_id)
+
+    # step 2: remove P and N
+    p_id !== nothing && remove_curvepiece!(t1, p_id)
+    n_id !== nothing && remove_curvepiece!(t2, n_id)
+
+    # eref for Mr_t1's edge endpoint on e1 after reversal
+    m_t1_edge_eref = cp_partner(anyon_eref(t1, m_t1_id))
+    p_m1 = (endpoint(t1, m_t1_edge_eref)::EdgeEndpoint).pos
+
+    # step 3: compute P1/P2 positions (before inserting anything), then insert P1 and P2
+    new_p1_id = nothing
+    new_p2_id = nothing
+    if p_id !== nothing
+        p1_second_pos = p_m1 + (dir == 1 ? 1 : 0)
+        p2_edge_pos   = sibling_insert_pos(l, tile_id1, e1, p1_second_pos)
+        new_p1_id = insert_curvepiece!(t1, curve_id, ac_p, p_ep.edge, p_ep.pos, e1, p1_second_pos)
+        new_p2_id = insert_curvepiece!(t2, curve_id, ac_p, e2, p2_edge_pos, IN)
+    end
+
+    # step 4: compute N1/N2 positions (after inserting P1/P2 so sibling pos accounts for P2), then insert
+    new_n1_id = nothing
+    new_n2_id = nothing
+    if n_id !== nothing
+        p_m1_now      = (endpoint(t1, m_t1_edge_eref)::EdgeEndpoint).pos  # may have shifted if dir==-1
+        n1_second_pos = p_m1_now + (dir == 1 ? 0 : 1)
+        n2_edge_pos   = sibling_insert_pos(l, tile_id1, e1, n1_second_pos)
+        new_n1_id = insert_curvepiece!(t1, curve_id, ac_n, e1, n1_second_pos, OUT)
+        new_n2_id = insert_curvepiece!(t2, curve_id, ac_n, e2, n2_edge_pos, n_ep.edge, n_ep.pos)
+    end
+
+    # step 5: update the curve diagram: replace [P, M_t1, M_t2, N] with [P1, P2, Mr_t2, Mr_t1, N1, N2]
+    for _ in 1:n_old; _remove_cref!(l, curve_id, pos_start); end
+    ins = pos_start
+    if p_id !== nothing
+        _insert_cref!(l, curve_id, ins, CurvepieceRef(tile_id1, new_p1_id)); ins += 1
+        _insert_cref!(l, curve_id, ins, CurvepieceRef(tile_id2, new_p2_id)); ins += 1
+    end
+    _insert_cref!(l, curve_id, ins, m_t2_cref); ins += 1
+    _insert_cref!(l, curve_id, ins, m_t1_cref); ins += 1
+    if n_id !== nothing
+        _insert_cref!(l, curve_id, ins, CurvepieceRef(tile_id1, new_n1_id)); ins += 1
+        _insert_cref!(l, curve_id, ins, CurvepieceRef(tile_id2, new_n2_id))
+    end
+
+    [3, curve_id, seg, dir]
 end
 
 """
-'Bends' curvepiece `cp_id` in `tile_id1` into neighboring `tile_id2`, with the piece in the
-second tile making a U-turn shape. Let `e` be the edge shared between `tile_id1` and
-`tile_id2`. There are two cases:
+Create a u-turn by pulling `cref` across position `pos` in edge `edge` of its tile.
+This operation is the 'inverse' of `_remove_u_turn!`, which is used in `simplify!`.
 
-1. `cp_id` is an edge-to-edge curvepiece, in which case it is deleted and replaced with
-two curvepieces `cp1` and `cp2` in `tile_id1` and a curvepiece `cp3` in `tile_id2`. Each of
-`cp1` and `cp2` inherits one of `cp_id`s endpoints and has a new endpoint on `e`. These new
-endpoints' siblings in `tile_id2` are the endpoints of `cp3`.
+In detail, suppose `cref` refers to a curvepiece C, with endpoints e1 and e2 (in
+traversal order), in a tile T1. T1 borders another tile T2 across the edge `edge`.
 
-2. `cp_id` is an edge-to-anyon curvepiece, in which case it is replaced by an edge-to-anyon
-curvepiece `cp1` and an edge-to-edge curvepiece `cp2` in `tile_id1`, and a curvepiece `cp3`
-in `tile_id2`. Similarly to the first case, the original two endpoints of `cp_id` are inherited
-by `cp1` and `cp2`, and they also each have one new endpoint whose sibling in `tile_id2` is
-an endpoint of `cp3`.
+After this operation, C will have been deleted and replaced in its curve diagram
+with a sequence of three new curvepieces, P, U, and N. P and N will be located in
+T1, and will each 'inherit' one of C's endpoints e1 and e2, while U will be a
+u-turn curvepiece located in T2.
+- P's first endpoint will be e1 while its second endpoint, p2, will be on `edge`
+- N's first endpoint, n1, will be on `edge` while its second endpoint will be e2
+- U's first and second endpoints will be the siblings of p2 and n1 respectively,
+hence connecting P to N
 
-Note that in both cases, there are two ways to match the two original endpoints of `cp_id`
-with the two new endpoints on `e`, and in case 1, one of these will lead to crossing curvepieces
-and one of them won't. In case 2, if there is only one edge-to-anyon curvepiece (`cp_id`), then
-both will not cause crossing, but if there is another such curvepiece, only one is correct, and
-which is correct depends on whether you encounter `cp_id`'s edge endpoint or the other edge-to-anyon
-curvepiece's edge endpoint first when traversing clockwise from edge `e`.
+Either p2 or n1 will be at position `pos`, with the other at position `pos+1`,
+depending on the exact layout of curvepieces in T1. The ordering is selected so
+that P and N do not intersect each other. See `split_curvepiece!` for more
+information on how this assignment is done.
+"""
+function _create_u_turn!(l::Lattice, cref::CurvepieceRef, edge::Int, pos::Int)
+    t1 = get_tile(l, cref.tile_id)
+    cp = curvepiece(t1, cref.cp_id)
+    curve_id = cp.curve_id
+    ac = cp.anyon_count
+    ter = corresponding_edge(l, cref.tile_id, edge)
+    t2_id, t2_edge = ter.tile_id, ter.edge
+    t2 = get_tile(l, t2_id)
+    pos_c = find_cref_index(l, curve_id, cref)
 
-In all cases, an error is thrown if the operation would lead to intersecting curvepieces.
+    p_id, n_id = split_curvepiece!(t1, cref.cp_id, edge, pos)
+    _remove_cref!(l, curve_id, pos_c)
+    _insert_cref!(l, curve_id, pos_c,     CurvepieceRef(cref.tile_id, p_id))
+    _insert_cref!(l, curve_id, pos_c + 1, CurvepieceRef(cref.tile_id, n_id))
 
-Preconditions:
-- `tile_id1` and `tile_id2` share exactly one edge
-- `cp_id` does not have any endpoints on the shared edge
+    p_ep = curvepiece(t1, p_id).endpoint2::EdgeEndpoint
+    n_ep = curvepiece(t1, n_id).endpoint1::EdgeEndpoint
+    u_pos1 = sibling_insert_pos(l, cref.tile_id, p_ep.edge, p_ep.pos)
+    u_pos2 = sibling_insert_pos(l, cref.tile_id, n_ep.edge, n_ep.pos)
 
-Returns `(cp1, cp2, cp3)` so the caller can update the curve diagram (replacing `cp_id` with
-`cp1`, `cp3`, `cp2` in traversal order).
-
-Implementation:
+    u_id = insert_curvepiece!(t2, curve_id, ac, t2_edge, u_pos1, t2_edge, u_pos2; allow_intersections=true)
+    _insert_cref!(l, curve_id, pos_c + 1, CurvepieceRef(t2_id, u_id))
+    nothing
+end
 
 """
-function stretch!(l::Lattice, tile_id1::Int, cp_id::Int, tile_id2::Int)
+Find the position on `tref` which is minimally shielded with respect to `eref1`
+and `eref2`.
+
+`eref1` and `eref2` must either be tile partners or the same `EndpointRef`,
+otherwise an error will be thrown.
+
+A position `pos` is 'shielded' from `eref1` and `eref2` by a pair, A and B, of
+edge endpoints if:
+- A and B are tile partners
+- a traversal along arc 1 from `eref1` to `pos` encounters A
+- a traversal along arc 2 from `eref2` to `pos` encounters B
+
+In other words, the curvepiece or pair of curvepieces between A and B forms a
+partition separating (shielding) `eref1` and `eref2` from `pos`. An equivalent
+condition is:
+- A and B are tile partners
+- a traversal along arc 1 encounters A but not B
+
+Let the traversal from `eref1` to `eref2` that does not include `pos` be arc 3.
+Then arcs 1, 2, and 3, along with `eref1` and `eref2`, include all endpoints on
+the tile. Note the following two possibilities:
+- If `eref1 == eref2`, arc 3 has length 0, and so neither A nor B are on it.
+- If `eref1` and `eref2` are tile partners, they partition the tile, meaning
+A and B, being tile partners of each other, must either both be on arc 3 or
+both not be on arc 3.
+
+Therefore, if A is on arc 1 but B is not, then B must be on arc 2, and so the
+conditions are equivalent.
+
+The 'shielding number' of a position is the number of such shielding pairs.
+
+
+
+
+"""
+function _minimal_shielding_position(l::Lattice, tref::TileEdgeRef, eref1::EndpointRef, eref2::EndpointRef)
+
+end
+
+"""
+'Stretches' curvepiece `cref` into neighboring `tile_id2` to form a u-turn; if
+there are any 'shielding' curvepieces, ie ones that are 'in the way', they are
+stretched into `tile_id2` first. See `_create_u_turn!` for specific details on
+the configuration of u-turns. The curve diagrams containing all affected
+curvepieces are automatically updated.
+
+Let E be the edge shared between `cref`'s tile and `tile_id2`. The position on E
+through which `cp_id` is pulled into `tile_id2` is chosen automatically to
+minimize the number of shielding curvepieces, using
+
+
+To do so, we walk
+
+
+Returns `nothing`.
+"""
+function stretch!(l::Lattice, cref::CurvepieceRef, tile_id2::Int)
     # t1 = get_tile(l, tile_id1)
     # t2 = get_tile(l, tile_id2)
     # e1, e2 = shared_edge(l, tile_id1, tile_id2)
@@ -763,4 +584,98 @@ Returns a 0×4 matrix if the anyons are already directly connected.
 """
 function makeneighbors!(l::Lattice, tile_id1::Int, tile_id2::Int)
     # TODO
+end
+
+###############################################################################
+# ANYON REMOVAL
+###############################################################################
+
+"""
+Remove the anyon in `tile_id` from its curve diagram.
+
+There are three cases, depending on whether the selected anyon is the first,
+last or a middle anyon in its curve diagram. Let the anyon number be `n`, of
+`N` total anyons in the curve diagram.
+- `n = 1`: Every curvepiece between anyons 1 and 2 is deleted. Anyon 2 becomes
+anyon 1, and the `anyon_count` for every curvepiece in the curve diagram is
+decremented by 1. If there were only two anyons in the curve diagram, there are
+no curvepieces left, and so the curve diagram is deleted.
+- `n = N`: Every curvepiece between anyons `N-1` and `N` is deleted. If there
+were only two anyons in the curve diagram, there are no curvepieces left, and
+so the curve diagram is deleted.
+- `1 < n < N`: There are originally two anyon-to-edge curvepieces in the tile.
+Let their edge endpoints be A and B, where A is the endpoint encountered by
+traversing backwards, while B is obtained by traversing forwards, from the
+anyon. Both curvespieces will be deleted, and a new edge-to-edge curvepiece
+going from A to B will be inserted, with `anyon_count=n-1`. All curvepieces
+between B and the `n+1`th anyon will have their `anyon_count`s decreased by
+one, from `n` to `n-1`.
+"""
+function remove_anyon!(l::Lattice, tile_id::Int)
+    t = get_tile(l, tile_id)
+    curve_id = anyon_curve_id(t)
+    curve_id === nothing && return
+
+    # classify the anyon cps: e2a has anyon at endpoint2, a2e has anyon at endpoint1
+    e2a_id = nothing
+    a2e_id = nothing
+    for cp_id in anyon_cp_ids(t)
+        if anyon_eref(t, cp_id).endpoint_idx == 2
+            e2a_id = cp_id
+        else
+            a2e_id = cp_id
+        end
+    end
+
+    if e2a_id === nothing
+        # n=1: curve starts at this anyon; delete everything from a2e_1 through e2a_2
+        pos_start = find_cref_index(l, curve_id, CurvepieceRef(tile_id, a2e_id))
+        anyon2_tile = next_anyon(l, tile_id)
+        t2 = get_tile(l, anyon2_tile)
+        e2a_in_2 = only(cp_id for cp_id in anyon_cp_ids(t2) if anyon_eref(t2, cp_id).endpoint_idx == 2)
+        pos_end = find_cref_index(l, curve_id, CurvepieceRef(anyon2_tile, e2a_in_2))
+        for pos in pos_end:-1:pos_start
+            ref = get_curvediagram(l, curve_id)[pos]
+            remove_curvepiece!(get_tile(l, ref.tile_id), ref.cp_id)
+            _remove_cref!(l, curve_id, pos)
+        end
+        _shift_anyon_count!(l, curve_id, pos_start, -1)
+
+    elseif a2e_id === nothing
+        # n=N: curve ends at this anyon; delete everything from a2e_{N-1} through e2a_N
+        pos_end = find_cref_index(l, curve_id, CurvepieceRef(tile_id, e2a_id))
+        prev_tile = prev_anyon(l, tile_id)
+        t_prev = get_tile(l, prev_tile)
+        a2e_in_prev = only(cp_id for cp_id in anyon_cp_ids(t_prev) if anyon_eref(t_prev, cp_id).endpoint_idx == 1)
+        pos_start = find_cref_index(l, curve_id, CurvepieceRef(prev_tile, a2e_in_prev))
+        for pos in pos_end:-1:pos_start
+            ref = get_curvediagram(l, curve_id)[pos]
+            remove_curvepiece!(get_tile(l, ref.tile_id), ref.cp_id)
+            _remove_cref!(l, curve_id, pos)
+        end
+
+    else
+        # middle: delete a2e, move e2a's anyon endpoint to B (a2e's edge endpoint)
+        b_ep = endpoint(t, EndpointRef(a2e_id, 2))::EdgeEndpoint
+        pos_e2a = find_cref_index(l, curve_id, CurvepieceRef(tile_id, e2a_id))
+        pos_a2e = pos_e2a + 1
+        remove_curvepiece!(t, a2e_id)
+        move_endpoint!(t, EndpointRef(e2a_id, 2), b_ep.edge, b_ep.pos)
+        _remove_cref!(l, curve_id, pos_a2e)
+        _shift_anyon_count!(l, curve_id, pos_a2e, -1)
+    end
+
+    isempty(get_curvediagram(l, curve_id)) && _delete_curvediagram!(l, curve_id)
+    simplify!(l)
+end
+
+###############################################################################
+# ANYON MOVE
+###############################################################################
+
+"""
+
+"""
+function move_anyon!(l::Lattice, tile_id1::Int, tile_id2::Int)
+
 end
