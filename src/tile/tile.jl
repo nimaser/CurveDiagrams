@@ -1,5 +1,5 @@
 ###############################################################################
-# EREF
+# TILE HELPER STRUCTS
 ###############################################################################
 
 """
@@ -13,7 +13,7 @@ struct EndpointRef
     cp_id::Int
     endpoint_idx::Int  # 1 or 2, for Curvepiece.endpoint1/endpoint2
     function EndpointRef(cp_id, endpoint_idx)
-        endpoint_idx ∈ {1, 2} || throw(ArgumentError("endpoint_idx must be 1 or 2, got $endpoint_idx"))
+        endpoint_idx ∈ [1, 2] || throw(ArgumentError("endpoint_idx must be 1 or 2, got $endpoint_idx"))
         new(cp_id, endpoint_idx)
     end
 end
@@ -156,40 +156,5 @@ Returns `nothing`.
 """
 function _remove_anyon_eref!(t::Tile, eref::EndpointRef)
     delete!(t._anyon_erefs, eref)
-    nothing
-end
-
-"""
-Move `eref` from its location to position `pos` on edge `edge`, or to the anyon
-if either `edge` or `position` are `nothing`. Updates the endpoints of all affected
-curvepieces.
-
-Returns `nothing`.
-"""
-function _move_eref!(t::Tile, eref::EndpointRef, edge::Union{Nothing, Int}, pos::Union{Nothing, Int})
-    # get new curvepiece with updated CurvepieceEndpoint for moved eref
-    old_cp = t._curvepieces[eref.cp_id]
-    new_cp = change_endpoint_location(cp, eref.endpoint_idx, edge, pos)
-    # if nothing changed, exit early; this also catches anyon -> anyon move, which is a no-op
-    if old_cp == new_cp return end
-    # track the position of the old endpoint to be removed
-    old_ep = old_cp.endpoints[eref.endpoint_idx]
-    removal_pos = old_ep.pos
-    # insert new eref first (to throw any errors before mutating)
-    if new_cp.endpoints[eref.endpoint_idx] isa EdgeEndpoint
-        _insert_edge_eref!(t, eref, edge, pos)
-        # insertion of new eref before old eref on the same edge will shift the old eref's position
-        if edge == old_ep.edge && pos <= old_ep.pos removal_pos += 1 end
-    else
-        _push_anyon_eref!(t, eref)
-    end
-    # swap in new curvepiece so that removals update its endpoints rather than the old cp's endpoints
-    t._curvepieces[eref.cp_id] = new_cp
-    # remove old eref
-    if cp.endpoints[eref.endpoint_idx] isa EdgeEndpoint
-        _remove_edge_eref!(t, old_ep.edge, removal_pos)
-    else
-        _remove_anyon_eref!(t, eref)
-    end
     nothing
 end

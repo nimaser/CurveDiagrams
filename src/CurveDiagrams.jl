@@ -30,9 +30,10 @@ export curve_id, anyon_count
 export u_turn_curvepiece_ids, hugs_corner, nesting_hierarchy
 include("tile/public_getters.jl")
 
-# export insert_curvepiece!, remove_curvepiece!, merge_curvepieces!
-# export move_endpoint!, reverse_curvepiece!, set_curvepiece_metadata!
-# include("tile/public_mutators.jl")
+export insert_curvepiece!, move_endpoint!, remove_curvepiece!
+export edge_merge!, edge_split!, anyon_merge!, anyon_split!
+export reverse_curvepiece!, set_curvepiece_metadata!
+include("tile/public_mutators.jl")
 
 # export CurvepieceRef, TileEdgeRef, Lattice
 # # geometry
@@ -50,8 +51,8 @@ include("tile/public_getters.jl")
 # export create_pair!
 # include("lattice/mutators.jl")
 
-# export visualize!, visualize
-# function visualize! end
-# function visualize end
+export visualize!, visualize
+function visualize! end
+function visualize end
 
 end # module CurveDiagrams

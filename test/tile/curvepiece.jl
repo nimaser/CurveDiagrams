@@ -39,14 +39,11 @@ end
     # initial edge endpoint locations
     edge1, pos1 = rand(1:maxrandval), rand(1:maxrandval)
     edge2, pos2 = rand(1:maxrandval), rand(1:maxrandval)
-    # edge endpoint directions
-    dir1 = rand(Set(IN, OUT))
-    dir2 = dir1 == IN ? OUT : IN
     # new edge endpoint location
     edge3, pos3 = rand(1:maxrandval), rand(1:maxrandval)
     # boundary curvepiece's edge endpoint moved to another edge
     let changed_idx = rand(1:2) # choose endpoint to change
-        eps = EdgeEndpoint(dir1, edge1, pos1), EdgeEndpoint(dir2, edge2, pos2)
+        eps = EdgeEndpoint(IN, edge1, pos1), EdgeEndpoint(OUT, edge2, pos2)
         cp = Curvepiece(curve_id, anyon_count, eps...)
         # change chosen endpoint's location
         new_cp = change_endpoint_location(cp, changed_idx, edge3, pos3)
@@ -54,13 +51,13 @@ end
         changed_ep = new_cp.endpoints[changed_idx]
         unchanged_ep = new_cp.endpoints[3-changed_idx]
         # check that they're correct
-        dir3 = changed_idx == 1 ? dir2 : dir1
-        @test changed_ep == EdgeEndpoint(edge3, pos3, dir3)
-        @test unchanged_ep == changed_idx == 1 ? EdgeEndpoint(dir2, edge2, pos2) : EdgeEndpoint(dir1, edge1, pos1)
+        dir3 = changed_idx == 1 ? IN : OUT
+        @test changed_ep == EdgeEndpoint(dir3, edge3, pos3)
+        @test unchanged_ep == (changed_idx == 1 ? EdgeEndpoint(OUT, edge2, pos2) : EdgeEndpoint(IN, edge1, pos1))
     end
     # boundary curvepiece's edge endpoint moved to anyon
     let changed_idx = rand(1:2) # choose which endpoint to chnage
-        eps = EdgeEndpoint(dir1, edge1, pos1), EdgeEndpoint(dir2, edge2, pos2)
+        eps = EdgeEndpoint(IN, edge1, pos1), EdgeEndpoint(OUT, edge2, pos2)
         cp = Curvepiece(curve_id, anyon_count, eps...)
         # change chosen endpoint's location
         new_cp = change_endpoint_location(cp, changed_idx, nothing, nothing)
@@ -70,11 +67,11 @@ end
         # check that they're correct
         dir3 = changed_idx == 1 ? OUT : IN
         @test changed_ep == AnyonEndpoint(dir3)
-        @test unchanged_ep == changed_idx == 1 ? EdgeEndpoint(dir2, edge2, pos2) : EdgeEndpoint(dir1, edge1, pos1)
+        @test unchanged_ep == (changed_idx == 1 ? EdgeEndpoint(OUT, edge2, pos2) : EdgeEndpoint(IN, edge1, pos1))
     end
     # central curvepiece's anyon endpoint moved to edge
     let anyon_idx = rand(1:2) # choose curvepiece direction
-        eps = anyon_idx == 1 ? (AnyonEndpoint(OUT), EdgeEndpoint(dir2, edge2, pos2)) : (EdgeEndpoint(dir1, edge1, pos1), AnyonEndpoint(IN))
+        eps = anyon_idx == 1 ? (AnyonEndpoint(OUT), EdgeEndpoint(OUT, edge2, pos2)) : (EdgeEndpoint(IN, edge1, pos1), AnyonEndpoint(IN))
         cp = Curvepiece(curve_id, anyon_count, eps...)
         # change anyon endpoint's location
         new_cp = change_endpoint_location(cp, anyon_idx, edge3, pos3)
@@ -84,11 +81,11 @@ end
         # check that they're correct
         dir3 = anyon_idx == 1 ? IN : OUT
         @test changed_ep == EdgeEndpoint(dir3, edge3, pos3)
-        @test unchanged_ep == anyon_idx == 1 ? EdgeEndpoint(dir2, edge2, pos2) : EdgeEndpoint(dir1, edge1, pos1)
+        @test unchanged_ep == (anyon_idx == 1 ? EdgeEndpoint(OUT, edge2, pos2) : EdgeEndpoint(IN, edge1, pos1))
     end
     # central curvepiece's anyon endpoint moved to anyon
     let anyon_idx = rand(1:2) # choose curvepiece direction
-        eps = anyon_idx == 1 ? (AnyonEndpoint(OUT), EdgeEndpoint(dir2, edge2, pos2)) : (EdgeEndpoint(dir1, edge1, pos1), AnyonEndpoint(IN))
+        eps = anyon_idx == 1 ? (AnyonEndpoint(OUT), EdgeEndpoint(OUT, edge2, pos2)) : (EdgeEndpoint(IN, edge1, pos1), AnyonEndpoint(IN))
         cp = Curvepiece(curve_id, anyon_count, eps...)
         # change anyon endpoint's location
         new_cp = change_endpoint_location(cp, anyon_idx, nothing, nothing)
@@ -98,6 +95,7 @@ end
         # check that they're correct
         dir3 = anyon_idx == 1 ? OUT : IN
         @test anyon_ep == AnyonEndpoint(dir3)
-        @test edge_ep == anyon_idx == 1 ? EdgeEndpoint(dir2, edge2, pos2) : EdgeEndpoint(dir1, edge1, pos1)
+        @test edge_ep == (anyon_idx == 1 ? EdgeEndpoint(OUT, edge2, pos2) : EdgeEndpoint(IN, edge1, pos1))
     end
-en
+    # TODO add two other cases
+end

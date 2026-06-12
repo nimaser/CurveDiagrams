@@ -296,27 +296,29 @@ function _endpoint_position(t::Tile, v::Vector{<:Point2}, eref::EndpointRef)
 end
 
 """
-Returns the polar angle (relative to `center`) of the edge endpoint of one of tile `t`'s anyon
-curvepieces, given it has vertices `v`. Returns `nothing` if `t` has no anyon curvepieces.
+Returns the polar angle (relative to `center`) of the edge endpoint of one of
+tile `t`'s anyon curvepieces, given it has vertices `v`. Returns `nothing` if
+`t` has no anyon curvepieces.
 
-This angle is used as an avoidance angle when determining arc traversal direction for edge-to-edge
-curvepieces, so that their arcs do not cross the anyon radial line.
+This angle is used as an avoidance angle when determining arc traversal direction
+for edge-to-edge curvepieces, so that their arcs do not cross the anyon radial line.
 """
 function _anyon_avoid_angle(t::Tile, v::Vector{<:Point2}, center::Point2)
     num_anyon_erefs(t) == 0 && return nothing
     a_eref  = first(anyon_erefs(t))
-    p_avoid = _endpoint_position(t, v, cp_partner(a_eref))
+    p_avoid = _endpoint_position(t, v, curvepiece_partner(a_eref))
     _polar_angle(p_avoid, center)
 end
 
 """
-Given a curvepiece's `nesting` number and `max_enc`, its maximum enclosing number in the nesting hierarchy
-determined by `calculate_nesting_hierarchy`, and a `max_radius` value which should be constant for any given
-tile (across curvepieces that is), return the radius at which an edge-to-edge curvepiece's circular plot
-section should travel around the tile center.
+Given a curvepiece's `nesting` number and `max_enc`, its maximum enclosing number
+in the nesting hierarchy determined by `nesting_hierarchy`, and a `max_radius`
+value which should be constant for any given tile (across curvepieces that is),
+return the radius at which an edge-to-edge curvepiece's circular plot section
+should travel around the tile center.
 
-As `1 <= nesting <= max_enc`, as `nesting` grows, the radius gets smaller as the arc travels closer to the
-tile's center.
+As `1 <= nesting <= max_enc`, as `nesting` grows, the radius gets smaller as the
+arc travels closer to the tile's center.
 """
 function _curvepiece_radius(nesting::Int, max_enc::Int, max_radius::Real)
     max_radius * (1 - (nesting / (max_enc + 1)))
@@ -352,7 +354,7 @@ function CurveDiagrams.visualize!(ax::Axis, t::Tile, v::Vector{<:Point2}; sharpn
     # preliminary calculations we'll need later
     inradius     = _polygon_inradius(v, center)
     arrow_scale  = 0.10f0 * inradius
-    nesting_dict = calculate_nesting_hierarchy(t)
+    nesting_dict = nesting_hierarchy(t)
     avoid_angle  = _anyon_avoid_angle(t, v, center)
     # plot curvepieces
     curvepiece_plots = Dict{Int, Any}()
@@ -360,9 +362,9 @@ function CurveDiagrams.visualize!(ax::Axis, t::Tile, v::Vector{<:Point2}; sharpn
         cp    = curvepiece(t, cp_id)
         label = "curvepiece with id $cp_id in curve $(cp.curve_id) after anyon $(cp.anyon_count)"
 
-        pts = if cp.endpoint1 isa EdgeEndpoint && cp.endpoint2 isa EdgeEndpoint # e2e
-            ep1      = cp.endpoint1::EdgeEndpoint
-            ep2      = cp.endpoint2::EdgeEndpoint
+        pts = if cp.endpoints[1] isa EdgeEndpoint && cp.endpoints[2] isa EdgeEndpoint # e2e
+            ep1      = cp.endpoints[1]::EdgeEndpoint
+            ep2      = cp.endpoints[2]::EdgeEndpoint
             p1       = _endpoint_position(t, v, EndpointRef(cp_id, 1))
             p2       = _endpoint_position(t, v, EndpointRef(cp_id, 2))
             p1_e1, p1_e2 = _edge_endpoints(v, ep1.edge)
@@ -373,13 +375,13 @@ function CurveDiagrams.visualize!(ax::Axis, t::Tile, v::Vector{<:Point2}; sharpn
             radius   = _curvepiece_radius(nesting, max_enc, inradius)
             _edge_to_edge_curvepiece_points(p1, p1_e1, p1_e2, p2, p2_e1, p2_e2, center, radius, ccw, sharpness)
         else # e2a / a2e
-            edge_ep    = cp.endpoint1 isa EdgeEndpoint ? cp.endpoint1::EdgeEndpoint : cp.endpoint2::EdgeEndpoint
-            edge_which = cp.endpoint1 isa EdgeEndpoint ? 1 : 2
+            edge_ep    = cp.endpoints[1] isa EdgeEndpoint ? cp.endpoints[1]::EdgeEndpoint : cp.endpoints[2]::EdgeEndpoint
+            edge_which = cp.endpoints[1] isa EdgeEndpoint ? 1 : 2
             p          = _endpoint_position(t, v, EndpointRef(cp_id, edge_which))
             e1, e2     = _edge_endpoints(v, edge_ep.edge)
             # make sure to flip the direction of the sampled points if its a2e, so the arrow points the right way
             pts_e2a    = _edge_to_anyon_curvepiece_points(p, e1, e2, center, sharpness)
-            cp.endpoint1 isa AnyonEndpoint ? reverse(pts_e2a) : pts_e2a
+            cp.endpoints[1] isa AnyonEndpoint ? reverse(pts_e2a) : pts_e2a
         end
         lp = lines!(ax, pts; color=CURVEPIECE_COLOR, inspector_label=(_, _, _) -> label)
         # direction arrow at the midpoint of the sampled points

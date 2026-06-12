@@ -391,16 +391,17 @@ function nesting_hierarchy(t::Tile)
     boundary_ids = setdiff(curvepiece_ids(t), central_curvepiece_ids(t))
 
     # get ordered list of all erefs on the edges, including those belonging to central curvepieces
-    all_edge_erefs = edge_erefs(t)
-    N = length(all_edge_erefs)
+    tile_edge_erefs = all_edge_erefs(t)
+    N = length(tile_edge_erefs)
 
     # mask for if endpoint has been assigned a nesting level
+    # cp_id -> nesting level
+    # cp_id -> max enclosing number, set to -1 by default
     assigned = falses(N)
-    # current nesting level and max enclosing number assignments per curvepiece id
     nesting  = Dict{Int,Int}()
     max_enc  = Dict{Int,Int}(id => -1 for id in boundary_ids)
 
-    # each scan assigns all curvepieces with the same nesting level value
+    # keep track of the nesting level to assign during each scan
     nesting_level = 1
     while true
         # (idx, eref) tuples for boundary curvepiece erefs lacking an assigned
@@ -408,37 +409,35 @@ function nesting_hierarchy(t::Tile)
         # barriers during the adjacency check; this prevents two erefs on
         # opposite sides of a central curvepiece from being immediately assigned
         # nesting level 1
-        unassigned = [(i, all_edge_erefs[i]) for i in 1:N if !assigned[i]]
+        unassigned = [(i, tile_edge_erefs[i]) for i in 1:N if !assigned[i]]
         length(nesting) == length(boundary_ids) && break # all boundary curvepieces assigned
 
-        # prep for assigning initially unassigned erefs
+        # walk through the initially unassigned erefs, assigning adjacent pairs
         M = length(unassigned)
         newly_assigned_mask = falses(M) # whether we assigned this initially unassigned eref during this scan
         newly_assigned      = Int[]     # erefs which were assigned this scan
-
-        # walk through the initially unassigned erefs, assigning adjacent pairs
         for m in 1:M
             # skip if we already assigned this or the next initially unassigned erefs
             newly_assigned_mask[m] && continue
-            n = mod1(m + 1, m)
+            n = mod1(m + 1, M)
             newly_assigned_mask[n] && continue
             # if the two consecutive unassigned erefs are not on the same curvepiece, skip
-            orig_idx_m, eref_m = unassigned[m]
-            orig_idx_n, eref_n = unassigned[n]
+            # idx_ indexes into tile_edge_erefs, while m and n index into unassigned
+            idx_m, eref_m = unassigned[m]
+            idx_n, eref_n = unassigned[n]
             eref_m.cp_id == eref_n.cp_id || continue
             # set the nesting level for this curvepiece
             nesting[eref_m.cp_id] = nesting_level
-            # get indices between orig_i and orig_j going clockwise, with wraparound, and
+            # get indices between n and m going clockwise, with wraparound, and
             # update the max enclosing number for all of those enclosed curvepieces
-            between = orig_idx_m < orig_idx_n ? ((orig_idx_m + 1):(orig_idx_n - 1)) :
-                                        Iterators.flatten(((orig_idx_m + 1):N, 1:(orig_idx_n - 1)))
+            between = idx_m < idx_n ? ((idx_m + 1):(idx_n - 1)) : Iterators.flatten(((idx_m + 1):N, 1:(idx_n - 1)))
             for idx in between
-                between_id = all_edge_erefs[idx].cp_id
+                between_id = tile_edge_erefs[idx].cp_id
                 if haskey(nesting, between_id) max_enc[between_id] = nesting_level end
             end
             # mark these two erefs as assigned
             newly_assigned_mask[m] = newly_assigned_mask[n] = true
-            push!(newly_assigned, orig_idx_m, orig_idx_n)
+            push!(newly_assigned, idx_m, idx_n)
         end
 
         for i in newly_assigned; assigned[i] = true; end

@@ -1,5 +1,5 @@
 ###############################################################################
-# INTERSECTION VALIDATION HELPERS
+# HELPERS
 ###############################################################################
 
 """
@@ -42,7 +42,7 @@ they exist, are not in `erefs`.
 Each element of `erefs` must refer to an `EdgeEndpoint`.
 """
 function _erefs_with_external_tile_partner(t::Tile, erefs::Set{EndpointRef})
-    externaltilepartner = Set()::Set{EndpointRef}
+    externaltilepartner::Set{EndpointRef}=Set()
     for e in erefs
         tp = tile_partner(t, e, EdgeEndpoint)
         if tp !== nothing && tp ∉ erefs
@@ -56,8 +56,7 @@ end
 Return the set of partitions in `t` which would be violated if a new partition
 with endpoints at `(edge1, pos1)` and `(edge2, pos2)` was created. Partitions
 formed using an eref in `exclude` are not considered, meaning they will not be
-in the output even if they are violated by the new partition. `exclude` must
-only contain erefs to `EdgeEndpoint`s.
+in the output even if they are violated by the new partition.
 
 A partition P in a tile is a pair of edge endpoints which are tile partners. Let
 - P1 and P2 be the two endpoints respectively
@@ -88,8 +87,10 @@ in the tile.
 Returns a set of erefs which each define one existing partition which would be
 violated by the proposed new partition.
 """
-function _violated_partitions(t::Tile, edge1::Int, pos1::Int, edge2::Int, pos2::Int; exclude=Set()::Set{EndpointRef})
-    arc = _erefs_between(t, edge1, pos1, edge2, pos2)
+function _violated_partitions(t::Tile, edge1::Int, pos1::Int, edge2::Int, pos2::Int;
+    exclude::Set{EndpointRef}=Set{EndpointRef}()
+)
+    arc = Set(_erefs_between(t, edge1, pos1, edge2, pos2))
     full_exclude = copy(exclude)
     for e in exclude
         tp = tile_partner(t, e, EdgeEndpoint)
@@ -165,7 +166,7 @@ function insert_curvepiece!(t::Tile, curve_id::Int, anyon_count::Int,
     if num_anyon_erefs(t) == 1 && !allow_intersections
         existing_edge_ep = endpoint(t, curvepiece_partner(only(anyon_erefs(t))))
         vp = _violated_partitions(t, edge, pos, existing_edge_ep.edge, existing_edge_ep.pos)
-        isempty(vp) throw(ArgumentError("curvepiece insertion at ($edge,$pos)→anyon violates partitions $vp"))
+        isempty(vp) || throw(ArgumentError("curvepiece insertion at ($edge,$pos)→anyon violates partitions $vp"))
     end
     cp_id = _allocate_cp_id!(t)
     # correct ordering occurs on construction
@@ -183,7 +184,10 @@ end
 Moves `eref` to a new location, `(edge, pos)`, without changing the direction or
 any other curvepiece data. `pos` is relative to the internal state at the time
 of the function call, meaning the caller should not 'adjust' for the fact that
-locations may shift while modifying the internal datastructures.
+locations may shift while modifying the internal datastructures. There is one
+subtlety to be noted, which is that with endpoints A, B, C on an edge, moving A
+to pos 1 will do nothing, but moving A to pos 2 will also do nothing, because A
+will be inserted **before** B, not after it.
 
 If either `edge` or `pos` are nothing, the `eref` is moved to the anyon.
 
@@ -191,33 +195,33 @@ This function validates attempted insertions against the current state of the
 tile to ensure that no move leads to intersecting curve pieces. This validation
 can be omitted by passing in `allow_intersections=true`.
 
-There are 6 total cases which can be characterized according to the types (A for
-AnyonEndpoint and E for EdgeEndpoint) of the (staying, moving -> target) endpoints:
-1. E, E -> E
-2. E, A -> E
-3. E, E -> A
-4. A, E -> E
-5. E, A -> A
-6. A, E -> A
-
-Cases 1 and 2 result in a boundary curvepiece, while the others result in central
-curvepieces. Cases 3 and 4 result in a new central curvepiece, while case 5 is
-always a no-op, and case 6 is always illegal. We only do validation of the first
-four cases, and let cases 5 and 6 fall through to, and be handled in, `_move_eref!`.
+See `change_endpoint_location` for a breakdown of the 6 cases.
 
 Returns `nothing`.
 """
-function move_curvepiece!(t::Tile, eref::EndpointRef, edge::Int, pos::Int; allow_intersections::Bool=false)
+function move_endpoint!(t::Tile, eref::EndpointRef, edge::Int, pos::Int;
+    allow_intersections::Bool=false, ignore_ids::Set{Int}=Set{Int}()
+)
+    old_cp = t._curvepieces[eref.cp_id]
+    # get curvepiece with updated endpoint for moved eref; case 6 errors here
+    new_cp = change_endpoint_location(old_cp, eref.endpoint_idx, edge, pos)
+    # catch case 5 and any other effective no-ops (moving eref to its own location)
+    if old_cp == new_cp return end
     # validation
     if !allow_intersections
-        ep_moving = endpoint(t, eref)
-        ep_staying = endpoint(t, curvepiece_partner(eref))
-        target = edge === nothing || pos === nothing ? AnyonEndpoint : EdgeEndpoint
-        vp = Set::Set{EndpointRef}
+        ep_staying = old_cp.endpoints[curvepiece_partner(eref).endpoint_idx]
+        ep_moving = old_cp.endpoints[eref.endpoint_idx]
+        ep_target = new_cp.endpoints[eref.endpoint_idx]
+        vp = Set{EndpointRef}()
+        # erefs to exclude from validation
+        exclude_erefs = Set{EndpointRef}()
+        for cp_id in ignore_ids
+            push!(exclude_erefs, EndpointRef(cp_id, 1), EndpointRef(cp_id, 2))
+        end
         # cases 1 and 2
-        if ep_staying isa EdgeEndpoint && target == EdgeEndpoint
-            excludeset = ep_moving isa EdgeEndpoint ? Set(eref) : Set()
-            vp = _violated_partitions(t, ep_staying.edge, ep_staying.pos, edge, pos; exclude=excludeset)
+        if ep_staying isa EdgeEndpoint && ep_target isa EdgeEndpoint
+            if ep_moving isa EdgeEndpoint push!(exclude_erefs, eref) end
+            vp = _violated_partitions(t, ep_staying.edge, ep_staying.pos, edge, pos; exclude=exclude_erefs)
         # case 3
         elseif ep_staying isa EdgeEndpoint && ep_moving isa EdgeEndpoint
             if num_anyon_erefs(t) == 2 throw(ArgumentError("cannot have more than two anyon erefs")) end
@@ -226,7 +230,7 @@ function move_curvepiece!(t::Tile, eref::EndpointRef, edge::Int, pos::Int; allow
                 vp = _violated_partitions(t, ep_staying.edge, ep_staying.pos, other_ep.edge, other_ep.pos)
             end
         # case 4
-        elseif ep_staying isa AnyonEndpoint && target == EdgeEndpoint
+        elseif ep_staying isa AnyonEndpoint && ep_target isa EdgeEndpoint
             if num_anyon_erefs(t) == 2
                 other_ep = endpoint(t, tile_partner(t, eref))
                 vp = _violated_partitions(t, other_ep.edge, other_ep.pos, edge, pos)
@@ -235,13 +239,31 @@ function move_curvepiece!(t::Tile, eref::EndpointRef, edge::Int, pos::Int; allow
         # if intersections exist
         isempty(vp) || throw(ArgumentError("curvepiece move violates partitions $vp"))
     end
-    _move_eref!(t, eref, edge, pos)
+    # track the position of the moving endpoint
+    removal_pos = ep_moving.pos
+    # insert new eref first (to throw any errors before mutating)
+    if new_cp.endpoints[eref.endpoint_idx] isa EdgeEndpoint
+        _insert_edge_eref!(t, eref, edge, pos)
+        # insertion of new eref before old eref on the same edge will shift the old eref's position
+        if edge == ep_moving.edge && pos <= ep_moving.pos removal_pos += 1 end
+    else
+        _push_anyon_eref!(t, eref)
+    end
+    # swap in new curvepiece so that removals update its endpoints rather than the old cp's endpoints
+    t._curvepieces[eref.cp_id] = new_cp
+    # remove old eref
+    if old_cp.endpoints[eref.endpoint_idx] isa EdgeEndpoint
+        _remove_edge_eref!(t, ep_moving.edge, removal_pos)
+    else
+        _remove_anyon_eref!(t, eref)
+    end
+    nothing
 end
 
 """Remove the curvepiece with id `cp_id` from `t`, along with its `EndpointRef`s."""
 function remove_curvepiece!(t::Tile, cp_id::Int)
     cp = curvepiece(t, cp_id)
-    for (idx, ep) in enumerate((cp.endpoint1, cp.endpoint2))
+    for (idx, ep) in enumerate(cp.endpoints)
         eref = EndpointRef(cp_id, idx)
         if ep isa EdgeEndpoint
             _remove_edge_eref!(t, ep.edge, ep.pos)
@@ -261,7 +283,7 @@ end
 Merge two curvepieces in `t` at the specified edge endpoints `eref1` and `eref2`.
 Return the curvepiece id of the resulting merged curvepiece.
 
-This operation is effectively the inverse of `split_curvepiece!`
+This operation is effectively the inverse of `edge_split!`
 
 By 'merge' we mean:
 - suppose `eref1` belongs to `curvepiece1`, whose other endpoint is `erefA`
@@ -270,7 +292,7 @@ By 'merge' we mean:
 be deleted, along with their endpoints, and a new curvepiece will be created
 whose endpoints are identical to `erefA` and `erefB`
 
-The validation performed when a new curvepiece is created can be omitted via the
+Intersection validation is performed automatically, and can be omitted via the
 `allow_intersections` flag.
 
 `eref1` and `eref2` must be edge endpoints with different directions located
@@ -287,16 +309,17 @@ function edge_merge!(t::Tile, eref1::EndpointRef, eref2::EndpointRef;
     cp2 = curvepiece(t, eref2.cp_id)
     # validate
     eref1.cp_id != eref2.cp_id || throw(ArgumentError("eref1 and eref2 must be on different curvepieces"))
-    ep1::EdgeEndpoint = endpoint(cp1, eref1)
-    ep2::EdgeEndpoint = endpoint(cp2, eref2)
+    ep1::EdgeEndpoint = endpoint(t, eref1)
+    ep2::EdgeEndpoint = endpoint(t, eref2)
     ep1.direction != ep2.direction || throw(ArgumentError("eref1 and eref2 must have different directions"))
     cp1.curve_id == cp2.curve_id || throw(ArgumentError("eref1 and eref2 must be on the same curve diagram"))
     cp1.anyon_count == cp2.anyon_count || throw(ArgumentError("eref1 and eref2 must have the same anyon_count"))
     # identify surviving endpoints erefA (partner of eref1) and erefB (partner of eref2)
-    erefA = cp_partner(eref1)
-    erefB = cp_partner(eref2)
-    epA = endpoint(cp1, erefA)
-    epB = endpoint(cp2, erefB)
+    erefA = curvepiece_partner(eref1)
+    erefB = curvepiece_partner(eref2)
+    epA = endpoint(t, erefA)
+    epB = endpoint(t, erefB)
+
     if epA isa EdgeEndpoint && epB isa EdgeEndpoint
         # determine which surviving endpoint (of erefA and erefB) is IN and which is OUT
         in_eref,  in_ep  = epA.direction == IN  ? (erefA, epA) : (erefB, epB)
@@ -309,6 +332,8 @@ function edge_merge!(t::Tile, eref1::EndpointRef, eref2::EndpointRef;
         remove_curvepiece!(t, out_eref.cp_id)
         pos_in = (endpoint(t, in_eref)::EdgeEndpoint).pos
         remove_curvepiece!(t, in_eref.cp_id)
+        # if pos_in > pos_out on the same edge, need to subtract one to account for position shift
+        if in_ep.edge == out_ep.edge && pos_in > pos_out pos_in -= 1 end
         insert_curvepiece!(t, cp1.curve_id, cp1.anyon_count,
             in_ep.edge, pos_in, out_ep.edge, pos_out; allow_intersections)
     else
@@ -357,13 +382,10 @@ function edge_split!(t::Tile, cp_id::Int, edge::Int, pos::Int)
     cp = curvepiece(t, cp_id)
     curve_id = cp.curve_id
     ac = cp.anyon_count
-    epA = cp.endpoint1
-    epB = cp.endpoint2
+    epA, epB = cp.endpoints
 
     # determine e1, e2 for the validity check
     needs_check = true
-    e1_edge, e1_pos = 0, 0
-    e2_edge, e2_pos = 0, 0
     if epA isa EdgeEndpoint && epB isa EdgeEndpoint
         e1_edge, e1_pos = epA.edge, epA.pos
         e2_edge, e2_pos = epB.edge, epB.pos
@@ -381,33 +403,53 @@ function edge_split!(t::Tile, cp_id::Int, edge::Int, pos::Int)
         needs_check = false
     end
 
-    # determine pos_A (erefA's new endpoint) and pos_B
-    pos_A, pos_B = if !needs_check ||
-                      EndpointRef(cp_id, 1) ∈ erefs_between(t, edge, pos, e2_edge, e2_pos)
-        pos, pos + 1
-    else
-        pos + 1, pos
+    # final positions (fp1, fp2) of the two new erefs, paired with epA's and epB's
+    # sides respectively, in the frame where both have been inserted but epA/epB
+    # have not yet been removed
+    positions = [pos+1, pos]
+    if !needs_check || (edge, pos) == (e2_edge, e2_pos) || EndpointRef(cp_id, 1) ∈ _erefs_between(t, e2_edge, e2_pos, edge, pos)
+        reverse!(positions)
     end
+    fp1, fp2 = positions
 
-    # adjust for position shifts caused by removing C
-    for ep in (epA, epB)
-        ep isa EdgeEndpoint || continue
-        ep.edge == edge || continue
-        ep.pos < pos_A && (pos_A -= 1)
-        ep.pos < pos_B && (pos_B -= 1)
+    # final positions of epA's and epB's continuations in that same frame
+    fpA = if epA isa EdgeEndpoint
+        epA.pos + (epA.edge == edge && epA.pos >= pos ? 2 : 0) -
+            (epA.edge != edge && epB isa EdgeEndpoint && epB.edge == epA.edge && epB.pos < epA.pos ? 1 : 0)
+    else
+        0
+    end
+    fpB = if epB isa EdgeEndpoint
+        epB.pos + (epB.edge == edge && epB.pos >= pos ? 2 : 0) -
+            (epB.edge != edge && epA isa EdgeEndpoint && epA.edge == epB.edge && epA.pos < epB.pos ? 1 : 0)
+    else
+        0
     end
 
     remove_curvepiece!(t, cp_id)
 
+    # convert final positions to sequential insertion-time positions: insertion
+    # happens in the order A, 1, 2, B, so each item's insertion-time position is
+    # its final position minus the number of later-inserted items on the same
+    # edge with a smaller final position
+    seqpos(fp, e, later) = fp - count(it -> it[1] == e && it[2] < fp, later)
+    item1, item2 = (edge, fp1), (edge, fp2)
+    itemB = epB isa EdgeEndpoint ? [(epB.edge, fpB)] : []
+    pos_A = epA isa EdgeEndpoint ? seqpos(fpA, epA.edge, [item1, item2, itemB...]) : 0
+    pos1 = seqpos(fp1, edge, [item2, itemB...])
+    pos2 = seqpos(fp2, edge, itemB)
+    pos_B = fpB
+
+    # insertions
     cp_id1 = if epA isa EdgeEndpoint
-        insert_curvepiece!(t, curve_id, ac, epA.edge, epA.pos, edge, pos_A; allow_intersections=true)
+        insert_curvepiece!(t, curve_id, ac, epA.edge, pos_A, edge, pos1)
     else
-        insert_curvepiece!(t, curve_id, ac, edge, pos_A, epA.direction; allow_intersections=true)
+        insert_curvepiece!(t, curve_id, ac, edge, pos1, epA.direction)
     end
     cp_id2 = if epB isa EdgeEndpoint
-        insert_curvepiece!(t, curve_id, ac, edge, pos_B, epB.edge, epB.pos; allow_intersections=true)
+        insert_curvepiece!(t, curve_id, ac, edge, pos2, epB.edge, pos_B)
     else
-        insert_curvepiece!(t, curve_id, ac, edge, pos_B, epB.direction; allow_intersections=true)
+        insert_curvepiece!(t, curve_id, ac, edge, pos2, epB.direction)
     end
     cp_id1, cp_id2
 end
@@ -434,7 +476,7 @@ Returns the curvepiece ids of the two newly created curvepieces.
 function anyon_split!(t::Tile, cp_id::Int)
     num_anyon_erefs(t) == 0 || throw(ArgumentError("tile already has anyon endpoints"))
     cp          = curvepiece(t, cp_id)
-    epA, epB    = cp.endpoint1::EdgeEndpoint, cp.endpoint2::EdgeEndpoint
+    epA, epB    = cp.endpoints
     curve_id    = cp.curve_id
     anyon_count = cp.anyon_count
     # pos_A will be altered by epB's removal if epA is after it on the same edge
@@ -468,8 +510,8 @@ function anyon_merge!(t::Tile)
     # determine which curvepiece is first
     out_anyon_eref = endpoint(t, arefs[1]).direction == OUT ? arefs[1] : arefs[2]
     in_anyon_eref  = out_anyon_eref === arefs[1] ? arefs[2] : arefs[1]
-    erefA = cp_partner(in_anyon_eref)
-    erefB = cp_partner(out_anyon_eref)
+    erefA = curvepiece_partner(in_anyon_eref)
+    erefB = curvepiece_partner(out_anyon_eref)
     curve_id    = curvepiece(t, erefA.cp_id).curve_id
     anyon_count = curvepiece(t, erefA.cp_id).anyon_count
     epB = endpoint(t, erefB)::EdgeEndpoint

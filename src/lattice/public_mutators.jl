@@ -32,9 +32,9 @@ function create_pair!(l::Lattice, tile_id1::Int, tile_id2::Int, pos::Int=1)
     shared != nothing || throw(ArgumentError("tiles $tile_id1 and $tile_id2 do not share an edge"))
     e1, e2 = shared
     # check that anyons aren't part of curve diagrams already
-    anyon_curve_id(t1) === nothing ||
+    curve_id(t1) === nothing ||
         throw(ArgumentError("tile $tile_id1 already has an anyon on a curve diagram"))
-    anyon_curve_id(t2) === nothing ||
+    curve_id(t2) === nothing ||
         throw(ArgumentError("tile $tile_id2 already has an anyon on a curve diagram"))
     # check that insertion position is valid; assumes valid lattice state
     N = num_edge_erefs(t1, e1)
@@ -135,13 +135,13 @@ function swap!(l::Lattice, tile_id1::Int, tile_id2::Int, dir::Int)
     seg = curvepiece(t1, m_t1_id).anyon_count
 
     # P = other anyon cp in T1 (if present), N = other anyon cp in T2 (if present)
-    p_id = partner_cp_id(t1, m_t1_id)
-    n_id = partner_cp_id(t2, m_t2_id)
+    p_id = partner_curvepiece_id(t1, m_t1_id)
+    n_id = partner_curvepiece_id(t2, m_t2_id)
 
     # record endpoints and anyon_counts before any mutation
-    p_ep = p_id !== nothing ? (endpoint(t1, cp_partner(anyon_eref(t1, p_id)))::EdgeEndpoint) : nothing
+    p_ep = p_id !== nothing ? (endpoint(t1, curvepiece_partner(anyon_eref(t1, p_id)))::EdgeEndpoint) : nothing
     ac_p = p_id !== nothing ? curvepiece(t1, p_id).anyon_count : nothing
-    n_ep = n_id !== nothing ? (endpoint(t2, cp_partner(anyon_eref(t2, n_id)))::EdgeEndpoint) : nothing
+    n_ep = n_id !== nothing ? (endpoint(t2, curvepiece_partner(anyon_eref(t2, n_id)))::EdgeEndpoint) : nothing
     ac_n = n_id !== nothing ? curvepiece(t2, n_id).anyon_count : nothing
 
     # record diagram positions before any mutation
@@ -160,7 +160,7 @@ function swap!(l::Lattice, tile_id1::Int, tile_id2::Int, dir::Int)
     n_id !== nothing && remove_curvepiece!(t2, n_id)
 
     # eref for Mr_t1's edge endpoint on e1 after reversal
-    m_t1_edge_eref = cp_partner(anyon_eref(t1, m_t1_id))
+    m_t1_edge_eref = curvepiece_partner(anyon_eref(t1, m_t1_id))
     p_m1 = (endpoint(t1, m_t1_edge_eref)::EdgeEndpoint).pos
 
     # step 3: compute P1/P2 positions (before inserting anything), then insert P1 and P2

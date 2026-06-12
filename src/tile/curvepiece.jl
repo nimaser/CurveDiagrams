@@ -118,59 +118,62 @@ end
 
 """
 Return a new `Curvepiece` which is the result of changing the location of `cp`'s
-`endpoint_idx`th endpoint `ep`.
+`endpoint_idx`th endpoint (the 'moving' endpoint), while leaving the other (the
+'staying' endpoint) unchanged. The new endpoint (the 'target' endpoint) has location
+`(edge, pos)`, unless either `edge` or `pos` are `nothing`, in which case its new
+location is on the anyon.
 
-There are four cases, with cases 2 and 4 occuring in lieu of 1 and 3 respectively
-if `edge == nothing` or `pos == nothing`:
-1. `ep` is an `EdgeEndpoint`; its `edge` and `pos` are set, while its direction
-is preserved
-2. `ep` is an `EdgeEndpoint`; it is converted to an `AnyonEndpoint`
-3. `ep` is an `AnyonEndpoint`; it is converted to an `EdgeEndpoint` with the
-specified `edge` and `pos`
-4. `ep` is an `AnyonEndpoint`; it remains an `AnyonEndpoint`, or in other words
-this call is a no-op
+There are 6 total cases which can be characterized according to the types (A for
+AnyonEndpoint and E for EdgeEndpoint) of the (staying, moving -> target) endpoints:
+1. E, E -> E
+2. E, A -> E
+3. E, E -> A
+4. A, E -> E
+5. E, A -> A
+6. A, E -> A
+
+Case 5 is always a no-op, and case 6 is always illegal, resulting in an error.
+Cases 1 and 2 result in boundary curvepieces, while cases 3 and 4 result in a
+new central curvepiece.
 
 This function does not change the direction of a curvepiece. Therefore, the
-ordering of the endpoints in the curvepiece does not change, so no revalidation
-or reordering is needed. That being said, the direction of the modified endpoint
-may need to be changed in order to ensure the curvepiece is valid: specifically,
-in cases 2 and 3 the endpoint's direction will depend on that of its curvepiece
-partner (the other edge endpoint on the curvepiece). The directions are set to:
-- in case 2, the opposite of the curvepiece partner's
-- in case 3, the same as the curvepiece partner's
+ordering of the endpoints in the curvepiece does not change. That being said, the
+direction of the target endpoint will need to be set in order to ensure that the
+curvepiece direction is preserved and the curvepiece is valid:
+- for cases 1 & 2, the new endpoint's direction will be opposite the staying one's
+direction
+- for cases 3 & 4 the new endpoint's direction will be the same as the staying one's
+direction
 
 This function is useful:
-- when this curvepiece's endpoint location is shifted along an edge due to other
+- when a curvepiece's endpoint location is shifted along an edge due to other
 endpoints being added/removed before it on that edge; updating the location after
 these shifts is necessary because endpoint locations are relative to all endpoints
 present rather than absolute
-- when an `Endpoint` has been moved from the anyon to the edge (or vice versa) as
-part of an anyon removal (or addition) operation
+- when an `Endpoint` has been moved from the anyon to the edge (or vice versa)
 """
 function change_endpoint_location(cp::Curvepiece, endpoint_idx::Int, edge::Union{Nothing,Int}, pos::Union{Nothing,Int})
-    ep = cp.endpoints[endpoint_idx]
-    if ep isa EdgeEndpoint
+    ep_moving = cp.endpoints[endpoint_idx]
+    if ep_moving isa EdgeEndpoint
         if edge === nothing || pos === nothing
-            # edge -> anyon move
-            # the direction should be the same as eref's curvepiece partner,
-            # i.e. the opposite of eref's
-            direction = ep.direction == IN ? OUT : IN
+            # cases 3 & 6, E -> A, direction doesn't matter for 6
+            # direction is opposite the moving one's, i.e. same as the staying one's
+            direction = ep_moving.direction == IN ? OUT : IN
             new_ep = AnyonEndpoint(direction)
         else
-            # edge -> edge move
-            # the new endpoint has the same direction but different location
-            new_ep = EdgeEndpoint(ep.direction, edge, pos)
+            # case 1, E -> E, preserve direction but different location
+            new_ep = EdgeEndpoint(ep_moving.direction, edge, pos)
         end
     else
-        # anyon -> anyon move
-        if edge === nothing || pos === nothing return cp end # no-op
-        # anyon -> edge move
-        # find curvepiece direction from whether specified anyon endpoint was
+        # no-op case 5 early return
+        if edge === nothing || pos === nothing return cp end
+        # cases 2 & 4, A -> E, find cp direction from whether moving was
         # first/second in cp, then preserve that direction
         direction = endpoint_idx == 1 ? IN : OUT
         new_ep = EdgeEndpoint(direction, edge, pos)
     end
     # find which endpoint eref refers to, then replace that one with new endpoint
     new_eps = endpoint_idx == 1 ? (new_ep, cp.endpoints[2]) : (cp.endpoints[1], new_ep)
+    # case 6 errors here
     Curvepiece(cp.curve_id, cp.anyon_count, new_eps...)
 end
