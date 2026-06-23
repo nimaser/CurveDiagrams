@@ -257,7 +257,7 @@ function anyon_count(t::Tile)
     isempty(cp_ids) && return nothing
     curvepieces = [curvepiece(t, id) for id in cp_ids]
     # try to find an outgoing central curvepiece, and return its anyon_count if found
-    outgoing_id = findfirst(cp -> cp.endpoint1 isa AnyonEndpoint, curvepieces)
+    outgoing_id = findfirst(cp -> cp.endpoints[1] isa AnyonEndpoint, curvepieces)
     if outgoing_id !== nothing
         return curvepieces[outgoing_id].anyon_count
     else
@@ -275,7 +275,7 @@ This function is `O(N)` where `N` is the number of curvepieces in the tile.
 function u_turn_curvepiece_ids(t::Tile)
     u_turns = Int[]
     for (cp_id, cp) in t._curvepieces # access field directly for efficiency
-        ep1, ep2 = cp.endpoint1, cp.endpoint2
+        ep1, ep2 = cp.endpoints
         if ep1 isa EdgeEndpoint && ep2 isa EdgeEndpoint # is it a boundary curvepiece
             if ep1.edge == ep2.edge # are both on same edge
                 push!(u_turns, cp_id)
@@ -294,8 +294,7 @@ other words, it hugs A if there are no endpoints between its endpoints and A.
 """
 function hugs_corner(t::Tile, cp_id::Int)
     cp = curvepiece(t, cp_id)
-    ep1 = cp.endpoint1
-    ep2 = cp.endpoint2
+    ep1, ep2 = cp.endpoints
     ep1 isa EdgeEndpoint && ep2 isa EdgeEndpoint || return false
     # clockwise and counterclockwise cases respectively
     if next_edge(t, ep1.edge) == ep2.edge

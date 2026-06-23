@@ -131,8 +131,8 @@ the start of its curve).
 function prev_curvepiece(l::Lattice, cref::CurvepieceRef)
     t = get_tile(l, cref.tile_id)
     cp = curvepiece(t, cref.cp_id)
-    if cp.endpoint1 isa AnyonEndpoint
-        partner = partner_curvepiece_id(t, cref.cp_id)
+    if cp.endpoints[1] isa AnyonEndpoint
+        partner = other_central_curvepiece_id(t, cref.cp_id)
         partner === nothing && return nothing
         return CurvepieceRef(cref.tile_id, partner)
     end
@@ -157,8 +157,8 @@ the end of its curve).
 function next_curvepiece(l::Lattice, cref::CurvepieceRef)
     t = get_tile(l, cref.tile_id)
     cp = curvepiece(t, cref.cp_id)
-    if cp.endpoint2 isa AnyonEndpoint
-        partner = partner_curvepiece_id(t, cref.cp_id)
+    if cp.endpoints[2] isa AnyonEndpoint
+        partner = other_central_curvepiece_id(t, cref.cp_id)
         partner === nothing && return nothing
         return CurvepieceRef(cref.tile_id, partner)
     end

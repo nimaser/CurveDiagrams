@@ -97,7 +97,7 @@ function _shift_anyon_count!(l::Lattice, curve_id::Int, from_pos::Int, delta::In
     diagram = l._curvediagrams[curve_id]
     for pos in from_pos:length(diagram)
         ref = diagram[pos]
-        t = get_tile(l, ref.tile_id)
+        t = l._tiles[ref.tile_id]
         cp = curvepiece(t, ref.cp_id)
         set_curvepiece_metadata!(t, ref.cp_id, cp.curve_id, cp.anyon_count + delta)
     end
@@ -120,7 +120,7 @@ separately.
 """
 function _relabel_curve!(l::Lattice, old_curve_id::Int, new_curve_id::Int)
     for ref in l._curvediagrams[new_curve_id]
-        t = get_tile(l, ref.tile_id)
+        t = l._tiles[ref.tile_id]
         cp = curvepiece(t, ref.cp_id)
         cp.curve_id == old_curve_id || continue
         set_curvepiece_metadata!(t, ref.cp_id, new_curve_id, cp.anyon_count)

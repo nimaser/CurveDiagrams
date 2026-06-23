@@ -43,7 +43,7 @@ function _remove_u_turn!(l::Lattice, cref::CurvepieceRef)
     # remove U from T1
     remove_curvepiece!(t1, cref.cp_id)
     # merge P and N in T2; returns the new cp_id for C
-    new_cp_id = merge_curvepieces!(t2, eref_p, eref_n; allow_intersections=false)
+    new_cp_id = edge_merge!(t2, eref_p, eref_n; allow_intersections=false)
     # replace the three consecutive crefs (P, U, N) with one cref for C
     _remove_cref!(l, curve_id, pos_u + 1)  # remove N (highest index first)
     _remove_cref!(l, curve_id, pos_u)      # remove U
@@ -77,11 +77,11 @@ function _remove_u_turns!(l::Lattice, tile_id::Int)
     t = get_tile(l, tile_id)
     modified = Set{Int}()
     while true
-        u_turns = u_turn_cp_ids(t)
+        u_turns = u_turn_curvepiece_ids(t)
         adjacent = [cp_id for cp_id in u_turns if let
             cp = curvepiece(t, cp_id)
-            ep1 = cp.endpoint1::EdgeEndpoint
-            ep2 = cp.endpoint2::EdgeEndpoint
+            ep1 = cp.endpoints[1]::EdgeEndpoint
+            ep2 = cp.endpoints[2]::EdgeEndpoint
             abs(ep1.pos - ep2.pos) == 1
         end]
         isempty(adjacent) && break
@@ -157,7 +157,7 @@ function _remove_u_bend!(l::Lattice, cref::CurvepieceRef)
     remove_curvepiece!(t1, u_cref.cp_id)
     remove_curvepiece!(t2, v_cref.cp_id)
     # merge P and N in O; returns the new cp_id for C
-    new_cp_id = merge_curvepieces!(o, eref_p_out, eref_n_in)
+    new_cp_id = edge_merge!(o, eref_p_out, eref_n_in)
     # replace the four consecutive crefs (P, U, V, N) with one cref for C
     _remove_cref!(l, curve_id, pos_p + 3)  # remove N
     _remove_cref!(l, curve_id, pos_p + 2)  # remove V
@@ -195,7 +195,7 @@ function _find_removable_u_bends(l::Lattice, tile_id::Int)
         t1 = get_tile(l, t1_id)
         hugs_corner(t1, u_eref.cp_id) || continue
         # U's other endpoint gives V's sibling in T2
-        t2_id, v_eref = sibling_eref(l, t1_id, cp_partner(u_eref))
+        t2_id, v_eref = sibling_eref(l, t1_id, curvepiece_partner(u_eref))
         t2 = get_tile(l, t2_id)
         hugs_corner(t2, v_eref.cp_id) || continue
         push!(result, CurvepieceRef(tile_id, last_eref.cp_id))

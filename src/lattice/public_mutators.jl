@@ -40,18 +40,18 @@ function create_pair!(l::Lattice, tile_id1::Int, tile_id2::Int, pos::Int=1)
     N = num_edge_erefs(t1, e1)
     1 <= pos <= N+1 || throw(ArgumentError("pos $pos not in range 1 to $(N+1)"))
     # curve diagram and position setup before curvepiece insertion
-    curve_id = _allocate_curve_id!(l)
-    anyon_count = 1
+    cid = _allocate_curve_id!(l)
+    acount = 1
     sibling_pos = (N+1) - pos + 1 # see sibling_insert_pos() and sibling_location() for explanation
     # insert curvepieces
-    cp_id1 = insert_curvepiece!(t1, curve_id, anyon_count, e1, pos, OUT)
-    cp_id2 = insert_curvepiece!(t2, curve_id, anyon_count, e2, sibling_pos, IN)
+    cp_id1 = insert_curvepiece!(t1, cid, acount, e1, pos, OUT)
+    cp_id2 = insert_curvepiece!(t2, cid, acount, e2, sibling_pos, IN)
     # register both curvepieces in the curve diagram
-    _insert_cref!(l, curve_id, 1, CurvepieceRef(tile_id1, cp_id1))
-    _insert_cref!(l, curve_id, 2, CurvepieceRef(tile_id2, cp_id2))
+    _insert_cref!(l, cid, 1, CurvepieceRef(tile_id1, cp_id1))
+    _insert_cref!(l, cid, 2, CurvepieceRef(tile_id2, cp_id2))
     # assemble and return the action
-    action = [0, curve_id, tile_id1, tile_id2]
-    curve_id, action
+    action = [0, cid, tile_id1, tile_id2]
+    cid, action
 end
 
 """
@@ -232,15 +232,22 @@ function _create_u_turn!(l::Lattice, cref::CurvepieceRef, edge::Int, pos::Int)
     t2 = get_tile(l, t2_id)
     pos_c = find_cref_index(l, curve_id, cref)
 
-    p_id, n_id = split_curvepiece!(t1, cref.cp_id, edge, pos)
+    p_id, n_id = edge_split!(t1, cref.cp_id, edge, pos)
     _remove_cref!(l, curve_id, pos_c)
     _insert_cref!(l, curve_id, pos_c,     CurvepieceRef(cref.tile_id, p_id))
     _insert_cref!(l, curve_id, pos_c + 1, CurvepieceRef(cref.tile_id, n_id))
 
-    p_ep = curvepiece(t1, p_id).endpoint2::EdgeEndpoint
-    n_ep = curvepiece(t1, n_id).endpoint1::EdgeEndpoint
-    u_pos1 = sibling_insert_pos(l, cref.tile_id, p_ep.edge, p_ep.pos)
-    u_pos2 = sibling_insert_pos(l, cref.tile_id, n_ep.edge, n_ep.pos)
+    p_ep = curvepiece(t1, p_id).endpoints[2]::EdgeEndpoint
+    n_ep = curvepiece(t1, n_id).endpoints[1]::EdgeEndpoint
+    # sibling_location reflects T2's edge before any u-turn insertions; T1's edge
+    # gained 2 endpoints via edge_split! without corresponding T2 insertions, so the
+    # true final positions in T2 are each +2 higher.
+    _, _, spos1 = sibling_location(l, cref.tile_id, p_ep.edge, p_ep.pos)
+    _, _, spos2 = sibling_location(l, cref.tile_id, n_ep.edge, n_ep.pos)
+    f1, f2 = spos1 + 2, spos2 + 2
+    # convert final positions to sequential insertion coords: insert pos1 first, then pos2
+    u_pos1 = f1 ≤ f2 ? f1 : f1 - 1
+    u_pos2 = f2
 
     u_id = insert_curvepiece!(t2, curve_id, ac, t2_edge, u_pos1, t2_edge, u_pos2; allow_intersections=true)
     _insert_cref!(l, curve_id, pos_c + 1, CurvepieceRef(t2_id, u_id))
@@ -520,7 +527,7 @@ function stretch!(l::Lattice, cref::CurvepieceRef, tile_id2::Int)
     e1, _ = shared_edge(l, cref.tile_id, tile_id2)
 
     # Get one edge endpoint of cref and its tile partner (or itself if no partner)
-    eref1 = cp.endpoint1 isa EdgeEndpoint ? EndpointRef(cref.cp_id, 1) : EndpointRef(cref.cp_id, 2)
+    eref1 = EndpointRef(cref.cp_id, cp.endpoints[1] isa EdgeEndpoint ? 1 : 2)
     tp    = tile_partner(t1, eref1, EdgeEndpoint)
     eref2 = tp !== nothing ? tp : eref1
 

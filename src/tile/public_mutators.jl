@@ -266,7 +266,10 @@ function remove_curvepiece!(t::Tile, cp_id::Int)
     for (idx, ep) in enumerate(cp.endpoints)
         eref = EndpointRef(cp_id, idx)
         if ep isa EdgeEndpoint
-            _remove_edge_eref!(t, ep.edge, ep.pos)
+            # re-read pos from live curvepiece: earlier removal could have shifted this
+            # endpoint's position if both endpoints were on the same edge
+            live_pos = (endpoint(t, eref)::EdgeEndpoint).pos
+            _remove_edge_eref!(t, ep.edge, live_pos)
         else
             _remove_anyon_eref!(t, eref)
         end
@@ -458,7 +461,7 @@ end
 Insert an anyon into the middle of the specified edge-to-edge curvepiece `cp_id`
 by splitting it into two anyon-to-edge curvepieces.
 
-This operation is effectively the inverse of `remove_anyon!`
+This operation is effectively the inverse of `anyon_merge!`
 
 In particular, if `erefA` and `erefB` are the endpoints of `cp_id`, in traversal
 order, then:
@@ -483,6 +486,7 @@ function anyon_split!(t::Tile, cp_id::Int)
     pos_A = epA.pos - (epA.edge == epB.edge && epA.pos > epB.pos ? 1 : 0)
     # pos_B is expected in post-epA-insertion coords, so it doesn't need adjustment
     pos_B = epB.pos
+    @show t
     remove_curvepiece!(t, cp_id)
     c1_id = insert_curvepiece!(t, curve_id, anyon_count,   epA.edge, pos_A, IN)
     c2_id = insert_curvepiece!(t, curve_id, anyon_count+1, epB.edge, pos_B, OUT)
@@ -492,7 +496,7 @@ end
 """
 Merges the two anyon-to-edge curvepieces in a tile together at their anyon endpoints.
 
-This operation is effectively the inverse of `remove_anyon!`
+This operation is effectively the inverse of `anyon_split!`
 
 In particular, if `erefA` and `erefB` are the edge endpoints of the two anyon-to-edge
 curvepieces in traversal order, and `eref1` and `eref2` are the two anyon endpoints,
@@ -554,7 +558,7 @@ function reverse_curvepiece!(t::Tile, cp_id::Int)
     new_cp = Curvepiece(cp.curve_id, cp.anyon_count, flip(cp.endpoints[1]), flip(cp.endpoints[2]))
     t._curvepieces[cp_id] = new_cp
     # flip erefs
-    for (idx, ep) in cp.endpoints
+    for (idx, ep) in enumerate(cp.endpoints)
         old_eref = EndpointRef(cp_id, idx)
         new_eref = curvepiece_partner(old_eref)
         if ep isa EdgeEndpoint
