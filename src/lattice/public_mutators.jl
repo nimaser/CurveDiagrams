@@ -126,7 +126,7 @@ function swap!(l::Lattice, tile_id1::Int, tile_id2::Int, dir::Int)
     e1, e2 = shared
 
     # find M: the anyon cp in each tile whose edge endpoint is on the shared edge
-    m_t1_id = only(cp_id for cp_id in anyon_cp_ids(t1)
+    m_t1_id = only(cp_id for cp_id in central_curvepiece_ids(t1)
                    if (endpoint(t1, cp_partner(anyon_eref(t1, cp_id)))::EdgeEndpoint).edge == e1)
     m_t2_id = only(cp_id for cp_id in anyon_cp_ids(t2)
                    if (endpoint(t2, cp_partner(anyon_eref(t2, cp_id)))::EdgeEndpoint).edge == e2)
@@ -221,6 +221,9 @@ Either p2 or n1 will be at position `pos`, with the other at position `pos+1`,
 depending on the exact layout of curvepieces in T1. The ordering is selected so
 that P and N do not intersect each other. See `split_curvepiece!` for more
 information on how this assignment is done.
+
+Return a `CurvepieceRef` to P, from which U and N can be quickly fetched via
+`next_curvepiece`.
 """
 function _create_u_turn!(l::Lattice, cref::CurvepieceRef, edge::Int, pos::Int)
     t1 = get_tile(l, cref.tile_id)
@@ -251,7 +254,7 @@ function _create_u_turn!(l::Lattice, cref::CurvepieceRef, edge::Int, pos::Int)
 
     u_id = insert_curvepiece!(t2, curve_id, ac, t2_edge, u_pos1, t2_edge, u_pos2; allow_intersections=true)
     _insert_cref!(l, curve_id, pos_c + 1, CurvepieceRef(t2_id, u_id))
-    nothing
+    CurvepieceRef(cref.tile_id, p_id)
 end
 
 """
@@ -519,7 +522,8 @@ its tile partner. In the case where the tile partner doesn't exist, that (sole)
 edge endpoint is used for both endpoint arguments.
 
 All curve diagrams containing affected curvepieces are automatically updated.
-Returns `nothing`.
+Return a `CurvepieceRef` to the first curvepiece created from `cref` (the P of the
+three curvepieces, P, U, and N, created when creating a u-turn).
 """
 function stretch!(l::Lattice, cref::CurvepieceRef, tile_id2::Int)
     t1 = get_tile(l, cref.tile_id)
@@ -541,142 +545,112 @@ function stretch!(l::Lattice, cref::CurvepieceRef, tile_id2::Int)
     end
 
     _create_u_turn!(l, cref, e1, best_pos + n)
-    nothing
 end
 
 """
-Extend an existing curve diagram by adding
-Extend an existing curve diagram by adding a new anyon in `tile_id2`, which must be an
-empty neighbor of `tile_id1`. `tile_id1`'s anyon must already be on a curve. `place=+1`
-inserts the new anyon immediately after `tile_id1`'s in traversal order; `place=-1` inserts
-it before.
+Extend an existing curve diagram which has an anyon in `tile_id1` by adding a
+new anyon in `tile_id2`; `tile_id2` must be a neighbor of `tile_id1` whose anyon is
+not already on a curve diagram.
 
-Preconditions:
-- `tile_id1` and `tile_id2` share exactly one edge.
-- `tile_id1`'s anyon is already on a curve (`anyon_curve_id(l, tile_id1) !== nothing`).
-- `tile_id2` contains no anyon curvepiece.
-- `place` is `+1` or `-1`.
+`place=+1` inserts the new anyon immediately after `tile_id1`'s in traversal order,
+while `place=-1` inserts it immediately before.
+
+Implementation-wise, there are six cases, depending on where t1 is in the curve
+and what the value of place is:
+- t1 is the first anyon, place = -1: connect t2's anyon to t1's anyon with
+curvepieces with anyon count 1, insert curvepiecerefs into the beginning of the
+curvepiece, and update the anyon count values for all subsequent curvepieces in
+the curve diagram - t1 is the last anyon, place = +1: connect t1's anyon to t2's
+anyon with curvepieces with anyon count 1
+- t1 is the first anyon, place = +1: stretch the curve diagram's first curvepiece
+into t2, then anyon_split it to connect to t2's anyon, and update the curvepiecerefs
+and curvepiece anyon counts accordingly
+- t1 is the last anyon, place = -1: stretch the curve diagram's last curvepiece
+into t2, then anyon_split it to connect to t2's anyon, and update the curvepiecerefs
+and curvepiece anyon counts accordingly
+- t1 is a middle anyon, place = -1, +1: stretch the preceding or following central
+curvepiece respectively from t1's anyon into t2, and adjust curvepiecerefs and
+curvepiece anyon counts appropriately
 
 Returns `action = [1, curve_id, pos, tile_id2]`, where `pos` is the 1-based index of the
 new anyon in the curve.
 """
 function grow!(l::Lattice, tile_id1::Int, tile_id2::Int, place::Int)
-    # --- Validation ---
-    # anyon_curve_id(l, tile_id2) !== nothing → error (t2 already has anyon)
-    # anyon_curve_id(l, tile_id1) === nothing → error (t1 has no anyon)
-    # place ∉ {-1,+1} → error
+    shared = shared_edge(l, tile_id1, tile_id2)
+    shared !== nothing || throw(ArgumentError("tiles $tile_id1 and $tile_id2 do not share an edge"))
+    e1, e2 = shared
+    t1 = get_tile(l, tile_id1)
+    t2 = get_tile(l, tile_id2)
+    curve_id(t1) !== nothing || throw(ArgumentError("tile $tile_id1 has no anyon on a curve diagram"))
+    curve_id(t2) === nothing  || throw(ArgumentError("tile $tile_id2 already has an anyon on a curve diagram"))
+    place ∈ (-1, +1) || throw(ArgumentError("place must be -1 or +1"))
 
-    # t1 = get_tile(l, tile_id1)
-    # t2 = get_tile(l, tile_id2)
-    # e1, e2 = shared_edge(l, tile_id1, tile_id2)
+    cid = curve_id(t1)
+    seg = anyon_count(t1)
 
-    # --- Step 1: clear shielding curvepieces ---
-    # A curvepiece shields the anyon from e1 if it appears in the unpaired set of BOTH
-    # the CW walk (e1 → anyon) and the CCW walk (e1 → anyon). Stretch each shielding
-    # piece (outermost first) until none remain.
-    # NOTE: makelist / shielding detection (two-directional walk + intersection) does not
-    # yet have a Julia equivalent and needs to be implemented.
-    # while any curvepiece in t1 shields the anyon from e1:
-    #     stretch!(l, tile_id1, outermost_shielding_cp_id, tile_id2)
+    # Find the anyon cp on the 'place' side: OUT direction for +1, IN for -1
+    wanted_dir = place == 1 ? OUT : IN
+    a_cp_id = let ids = central_curvepiece_ids(t1)
+        idx = findfirst(id -> curvepiece(t1, id).endpoints[1].direction == wanted_dir, ids)
+        idx === nothing ? nothing : ids[idx]
+    end
 
-    # --- Identify a_cp: the relevant anyon curvepiece in t1 ---
-    # place==+1 → the one with the highest anyon_count (last in traversal through the anyon)
-    # place==-1 → the one with the lowest anyon_count (first in traversal through the anyon)
-    # a_cp_id  = anyon cp in t1 with (place==+1 ? max : min) anyon_count
-    # a_cp     = curvepiece(t1, a_cp_id)
-    # curve_id = a_cp.curve_id
-    # seg      = a_cp.anyon_count
+    if a_cp_id !== nothing
+        # Cases 3, 4, 5: a cp exists on the place side — stretch it into t2, then
+        # anyon_split the resulting u-turn to attach t2's anyon.
+        a_cref = CurvepieceRef(tile_id1, a_cp_id)
+        p_cref = stretch!(l, a_cref, tile_id2)
+        pos_p  = find_cref_index(l, cid, p_cref)
+        u_cref = l._curvediagrams[cid][pos_p + 1]
 
-    # --- Determine whether the curve has a segment on the 'place' side of a_cp ---
-    # neighbor = (place == +1) ? next_curvepiece(l, tile_id1, a_cp_id)
-    #                           : prev_curvepiece(l, tile_id1, a_cp_id)
-    # neighbor = (neighbor_tile_id, neighbor_cp_id), or nothing if a_cp is a terminus
-    # i1 = find_curve_position(l, curve_id, tile_id1, a_cp_id)
+        c1_id, c2_id = anyon_split!(t2, u_cref.cp_id)
 
-    # if neighbor !== nothing:
-    #     neighbor_tile_id, neighbor_cp_id = neighbor
-    #
-    #     if neighbor_tile_id == tile_id2:
-    #         # --- Case A1: the adjacent segment already crosses into t2 ---
-    #         #
-    #         # neighbor_cp (call it b) is an edge-to-edge curvepiece in t2 with one
-    #         # endpoint on e2 (sibling of a_cp's edge endpoint). We split it at t2's
-    #         # new anyon:
-    #         #   b becomes:    EdgeEndpoint(other_edge) ↔ AnyonEndpoint
-    #         #   new_cp gets:  EdgeEndpoint(e2, same pos) ↔ AnyonEndpoint
-    #         #
-    #         # Concretely:
-    #         #   b_ep_e2     = the EdgeEndpoint of b on e2
-    #         #   b_ep_other  = the other EdgeEndpoint of b (on some non-e2 edge)
-    #         #   remove b from t2
-    #         #   b_new    = insert_curvepiece!(t2, curve_id, seg,
-    #         #                  b_ep_other.edge, b_ep_other.pos, ANYON)
-    #         #   new_cp   = insert_curvepiece!(t2, curve_id, seg,
-    #         #                  e2, <position on e2 matching b's old e2 endpoint>, ANYON)
-    #         #   NOTE: anyon_count for b_new vs new_cp: both initially get seg; their
-    #         #   order in t2's anyon list distinguishes them; _shift_anyon_count! at the
-    #         #   end handles final renumbering.
-    #         #   NOTE: position arithmetic on e2 after removing b needs careful handling
-    #         #   (as in stretch!).
-    #         #
-    #         # Update curve diagram:
-    #         #   replace CurvepieceRef(tile_id2, b_cp_id) with CurvepieceRef(tile_id2, b_new_id)
-    #         #   insert  CurvepieceRef(tile_id2, new_cp_id) at position:
-    #         #     place==+1 → i1+1   (new anyon is after a in the path)
-    #         #     place==-1 → i1     (new anyon is before a in the path)
-    #
-    #     else:
-    #         # --- Case A2: adjacent segment does NOT go to t2 ---
-    #         #
-    #         # Stretch a_cp into t2, creating a U-turn loop in t2 on e2.
-    #         # cp1, cp2, cp3 = stretch!(l, tile_id1, a_cp_id, tile_id2)
-    #         # cp3 is now an edge-to-edge loop in t2 (both endpoints on e2).
-    #         # Split cp3 at the new anyon in t2, exactly as in case A1:
-    #         #   cp3_in_ep  = the IN endpoint of cp3 on e2
-    #         #   cp3_out_ep = the OUT endpoint of cp3 on e2
-    #         #   remove cp3 from t2
-    #         #   cp3a = insert_curvepiece!(t2, curve_id, seg, e2, cp3_in_ep.pos, ANYON)
-    #         #   cp3b = insert_curvepiece!(t2, curve_id, seg, e2, cp3_out_ep.pos, ANYON)
-    #         #   NOTE: position arithmetic on e2 after removing cp3 needs careful handling.
-    #         #
-    #         # Update curve diagram:
-    #         #   replace CurvepieceRef(tile_id2, cp3) with CurvepieceRef(tile_id2, cp3a)
-    #         #   insert  CurvepieceRef(tile_id2, cp3b) adjacent to it
-    #         #   (ordering of cp3a vs cp3b in the diagram depends on place)
-    #
-    # else:
-    #     # --- Case B: a_cp is at the terminus of the curve in the 'place' direction ---
-    #     # No adjacent segment exists; must create entirely new curvepieces.
-    #     #
-    #     # Find insertion position on e1: walk CW from a_cp's edge endpoint around t1
-    #     # to e1, counting unpaired erefs (same algorithm as in stretch!'s else branch).
-    #     # NOTE: find_insertion_position_on_e1 could be extracted from stretch! into a
-    #     # shared helper.
-    #     # insert_pos = find_insertion_position_on_e1(t1, a_cp_id, e1)
-    #     # _, _, sibling_pos = sibling_location(l, tile_id1, e1, insert_pos)
-    #     #
-    #     # direction = (place == +1) ? OUT : IN
-    #     #   place==+1 → OUT on e1 (curve exits t1 after the anyon, heading to t2)
-    #     #   place==-1 → IN  on e1 (curve enters t1 before the anyon, coming from t2)
-    #     #
-    #     # new_cp_t1 = insert_curvepiece!(t1, curve_id, seg, e1, insert_pos, direction)
-    #     # new_cp_t2 = insert_curvepiece!(t2, curve_id, seg, e2, sibling_pos+1, opposite(direction))
-    #     #
-    #     # Extend the curve diagram at the terminus:
-    #     # if place == +1:
-    #     #     append CurvepieceRef(tile_id1, new_cp_t1) to diagram
-    #     #     append CurvepieceRef(tile_id2, new_cp_t2) to diagram
-    #     # else: # place == -1
-    #     #     prepend CurvepieceRef(tile_id2, new_cp_t2) to diagram
-    #     #     prepend CurvepieceRef(tile_id1, new_cp_t1) to diagram
+        # Replace U in diagram with [C1, C2]
+        _remove_cref!(l, cid, pos_p + 1)
+        _insert_cref!(l, cid, pos_p + 1, CurvepieceRef(tile_id2, c1_id))
+        _insert_cref!(l, cid, pos_p + 2, CurvepieceRef(tile_id2, c2_id))
 
-    # --- Step 4: update anyon_count ---
-    # From t2's new anyon cp onward in the curve, increment anyon_count by +1.
-    # Equivalent to MATLAB's "update segment numbers" loop from istart to end.
-    # new_t2_pos_in_diagram = position of t2's new anyon cp in curve diagram
-    # _shift_anyon_count!(l, curve_id, new_t2_pos_in_diagram + 1, +1)
+        # N (now at pos_p+3) and everything after need anyon_count +1
+        _shift_anyon_count!(l, cid, pos_p + 3, +1)
+    else
+        # Cases 1, 2: terminus in the place direction — stretch the only existing
+        # anyon cp to move shields, then remove the u-turn to recover a clear path.
+        opp_cref = CurvepieceRef(tile_id1, only(central_curvepiece_ids(t1)))
+        p_cref   = stretch!(l, opp_cref, tile_id2)
+        pos_p    = find_cref_index(l, cid, p_cref)
+        u_cref   = l._curvediagrams[cid][pos_p + 1]
+        n_cref   = l._curvediagrams[cid][pos_p + 2]
 
-    # return [1, curve_id, seg + 1, tile_id2]
+        # Record the e1 positions that will be vacated by u-turn removal
+        p_pos_on_e1 = (curvepiece(t1, p_cref.cp_id).endpoints[2]::EdgeEndpoint).pos
+        n_pos_on_e1 = (curvepiece(t1, n_cref.cp_id).endpoints[1]::EdgeEndpoint).pos
+        insert_pos  = min(p_pos_on_e1, n_pos_on_e1)
+
+        _remove_u_turn!(l, u_cref)
+
+        # e1 and e2 are back in sync; compute sibling position before inserting
+        sibling_pos = sibling_insert_pos(l, tile_id1, e1, insert_pos)
+
+        if place == 1
+            # Case 2: t1 is last — append new OUT cp in t1 and IN cp in t2
+            new_t1_id = insert_curvepiece!(t1, cid, seg, e1, insert_pos,   OUT)
+            new_t2_id = insert_curvepiece!(t2, cid, seg, e2, sibling_pos,  IN)
+            n = length(l._curvediagrams[cid])
+            _insert_cref!(l, cid, n + 1, CurvepieceRef(tile_id1, new_t1_id))
+            _insert_cref!(l, cid, n + 2, CurvepieceRef(tile_id2, new_t2_id))
+        else
+            # Case 1: t1 is first — prepend new OUT cp in t2 and IN cp in t1
+            new_t1_id = insert_curvepiece!(t1, cid, 1, e1, insert_pos,  IN)
+            new_t2_id = insert_curvepiece!(t2, cid, 1, e2, sibling_pos, OUT)
+            _insert_cref!(l, cid, 1, CurvepieceRef(tile_id1, new_t1_id))
+            _insert_cref!(l, cid, 1, CurvepieceRef(tile_id2, new_t2_id))
+            # Original crefs are now at positions 3+; shift their anyon counts
+            _shift_anyon_count!(l, cid, 3, +1)
+        end
+    end
+
+    new_pos = place == 1 ? seg + 1 : seg
+    [1, cid, new_pos, tile_id2]
 end
 
 """
@@ -749,13 +723,13 @@ one, from `n` to `n-1`.
 """
 function remove_anyon!(l::Lattice, tile_id::Int)
     t = get_tile(l, tile_id)
-    curve_id = anyon_curve_id(t)
-    curve_id === nothing && return
+    cid = curve_id(t)
+    cid === nothing && return
 
     # classify the anyon cps: e2a has anyon at endpoint2, a2e has anyon at endpoint1
     e2a_id = nothing
     a2e_id = nothing
-    for cp_id in anyon_cp_ids(t)
+    for cp_id in central_curvepiece_ids(t)
         if anyon_eref(t, cp_id).endpoint_idx == 2
             e2a_id = cp_id
         else
@@ -765,43 +739,43 @@ function remove_anyon!(l::Lattice, tile_id::Int)
 
     if e2a_id === nothing
         # n=1: curve starts at this anyon; delete everything from a2e_1 through e2a_2
-        pos_start = find_cref_index(l, curve_id, CurvepieceRef(tile_id, a2e_id))
+        pos_start = find_cref_index(l, cid, CurvepieceRef(tile_id, a2e_id))
         anyon2_tile = next_anyon(l, tile_id)
         t2 = get_tile(l, anyon2_tile)
-        e2a_in_2 = only(cp_id for cp_id in anyon_cp_ids(t2) if anyon_eref(t2, cp_id).endpoint_idx == 2)
-        pos_end = find_cref_index(l, curve_id, CurvepieceRef(anyon2_tile, e2a_in_2))
+        e2a_in_2 = only(cp_id for cp_id in central_curvepiece_ids(t2) if anyon_eref(t2, cp_id).endpoint_idx == 2)
+        pos_end = find_cref_index(l, cid, CurvepieceRef(anyon2_tile, e2a_in_2))
         for pos in pos_end:-1:pos_start
-            ref = get_curvediagram(l, curve_id)[pos]
+            ref = get_curvediagram(l, cid)[pos]
             remove_curvepiece!(get_tile(l, ref.tile_id), ref.cp_id)
-            _remove_cref!(l, curve_id, pos)
+            _remove_cref!(l, cid, pos)
         end
-        _shift_anyon_count!(l, curve_id, pos_start, -1)
+        _shift_anyon_count!(l, cid, pos_start, -1)
 
     elseif a2e_id === nothing
         # n=N: curve ends at this anyon; delete everything from a2e_{N-1} through e2a_N
-        pos_end = find_cref_index(l, curve_id, CurvepieceRef(tile_id, e2a_id))
+        pos_end = find_cref_index(l, cid, CurvepieceRef(tile_id, e2a_id))
         prev_tile = prev_anyon(l, tile_id)
         t_prev = get_tile(l, prev_tile)
-        a2e_in_prev = only(cp_id for cp_id in anyon_cp_ids(t_prev) if anyon_eref(t_prev, cp_id).endpoint_idx == 1)
-        pos_start = find_cref_index(l, curve_id, CurvepieceRef(prev_tile, a2e_in_prev))
+        a2e_in_prev = only(cp_id for cp_id in central_curvepiece_ids(t_prev) if anyon_eref(t_prev, cp_id).endpoint_idx == 1)
+        pos_start = find_cref_index(l, cid, CurvepieceRef(prev_tile, a2e_in_prev))
         for pos in pos_end:-1:pos_start
-            ref = get_curvediagram(l, curve_id)[pos]
+            ref = get_curvediagram(l, cid)[pos]
             remove_curvepiece!(get_tile(l, ref.tile_id), ref.cp_id)
-            _remove_cref!(l, curve_id, pos)
+            _remove_cref!(l, cid, pos)
         end
 
     else
         # middle: merge e2a + a2e into a single e2e curvepiece
-        pos_e2a = find_cref_index(l, curve_id, CurvepieceRef(tile_id, e2a_id))
+        pos_e2a = find_cref_index(l, cid, CurvepieceRef(tile_id, e2a_id))
         pos_a2e = pos_e2a + 1
-        new_cp_id = remove_anyon!(t)
-        _remove_cref!(l, curve_id, pos_a2e)
-        _remove_cref!(l, curve_id, pos_e2a)
-        _insert_cref!(l, curve_id, pos_e2a, CurvepieceRef(tile_id, new_cp_id))
-        _shift_anyon_count!(l, curve_id, pos_e2a + 1, -1)
+        new_cp_id = anyon_merge!(t)
+        _remove_cref!(l, cid, pos_a2e)
+        _remove_cref!(l, cid, pos_e2a)
+        _insert_cref!(l, cid, pos_e2a, CurvepieceRef(tile_id, new_cp_id))
+        _shift_anyon_count!(l, cid, pos_e2a + 1, -1)
     end
 
-    isempty(get_curvediagram(l, curve_id)) && _delete_curvediagram!(l, curve_id)
+    isempty(get_curvediagram(l, cid)) && _delete_curvediagram!(l, cid)
     simplify!(l)
 end
 

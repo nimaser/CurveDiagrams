@@ -51,7 +51,7 @@ export find_cref_index, prev_curvepiece, next_curvepiece
 export anyon_tiles, next_anyon, prev_anyon
 include("lattice/public_getters.jl")
 
-export create_pair!
+export create_pair!, grow!, remove_anyon!
 export stretch!
 include("lattice/public_mutators.jl")
 

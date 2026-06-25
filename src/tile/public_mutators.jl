@@ -486,7 +486,6 @@ function anyon_split!(t::Tile, cp_id::Int)
     pos_A = epA.pos - (epA.edge == epB.edge && epA.pos > epB.pos ? 1 : 0)
     # pos_B is expected in post-epA-insertion coords, so it doesn't need adjustment
     pos_B = epB.pos
-    @show t
     remove_curvepiece!(t, cp_id)
     c1_id = insert_curvepiece!(t, curve_id, anyon_count,   epA.edge, pos_A, IN)
     c2_id = insert_curvepiece!(t, curve_id, anyon_count+1, epB.edge, pos_B, OUT)
