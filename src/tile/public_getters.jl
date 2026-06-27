@@ -267,7 +267,7 @@ curvepiece exists.
 
 Throw an error if `cp_id` is not an anyon curvepiece.
 """
-function other_central_curvepiece_id(t::Tile, cp_id::Int)
+@inline function other_central_curvepiece_id(t::Tile, cp_id::Int)
     is_central_curvepiece(t, cp_id) ||
         throw(ArgumentError("curvepiece $cp_id is not a central curvepiece"))
     for eref in anyon_erefs(t)
@@ -277,11 +277,24 @@ function other_central_curvepiece_id(t::Tile, cp_id::Int)
 end
 
 """
+Return a tuple of the incoming and outgoing central curvepieces, in that order,
+with `nothing` taking the curvepiece's place if it doesn't exist.
+"""
+@inline function ordered_central_curvepieces(t::Tile)
+    curvepieces = [curvepiece(t, id) for id in central_curvepiece_ids(t)]
+    incoming_id = findfirst(cp -> last(cp) isa AnyonEndpoint, curvepieces)
+    outgoing_id = findfirst(cp -> first(cp) isa AnyonEndpoint, curvepieces)
+    incoming = incoming_id === nothing ? nothing : curvepieces[incoming_id]
+    outgoing = outgoing_id === nothing ? nothing : curvepieces[outgoing_id]
+    (incoming, outgoing)
+end
+
+"""
 Return the `curve_id` of the tile's central curvepieces, and `nothing` if there
 are no such curvepieces. If there are two central curvepieces, they must be on
 the same `Curve`.
 """
-function curve_id(t::Tile)
+@inline function curve_id(t::Tile)
     cp_ids = central_curvepiece_ids(t)
     isempty(cp_ids) && return nothing
     cp = curvepiece(t, first(cp_ids))
@@ -294,18 +307,13 @@ otherwise. That is, if there are any central curvepieces, they are are part of
 a `Curve`, and this function returning `n` means that this anyon is the `nth`
 encountered when traversing that `Curve`."""
 function anyon_count(t::Tile)
-    # get central curvepieces
-    cp_ids = central_curvepiece_ids(t)
-    isempty(cp_ids) && return nothing
-    curvepieces = [curvepiece(t, id) for id in cp_ids]
+    incoming, outgoing = ordered_central_curvepieces(t)
     # try to find an outgoing central curvepiece, and return its anyon_count if found
-    outgoing_id = findfirst(cp -> first(cp) isa AnyonEndpoint, curvepieces)
-    if outgoing_id !== nothing
-        return curvepieces[outgoing_id].anyon_count
-    else
-        # only an incoming central curvepiece present, so we need to increase by 1
-        return only(curvepieces).anyon_count + 1
-    end
+    isnothing(outgoing) || return outgoing.anyon_count
+    # only an incoming central curvepiece present, so we need to increase by 1
+    isnothing(incoming) || return incoming.anyon_count + 1
+    # the tile has no central curvepieces and thus no anyon_count
+    nothing
 end
 
 """
@@ -585,11 +593,11 @@ function is_complete(t::Tile)
     # check that every eref is unique and has a corresponding CurvepieceEndpoint
     seen = EndpointRef[]
     for eref in anyon_erefs(t)
-        eref in seen && return false
+        eref ∈ seen && return false
         endpoint(t, eref) isa AnyonEndpoint || return false
     end
     for eref in all_edge_erefs(t)
-        eref in seen && return false
+        eref ∈ seen && return false
         endpoint(t, eref) isa EdgeEndpoint || return false
     end
     true
@@ -598,11 +606,16 @@ end
 """
 Return whether `t` is valid, meaning that
 - there are 0, 1, or 2 anyon erefs
-- if there is 1 anyon eref, then the incoming central curvepiece has `anyon_count` of 1
 - if there are 2 anyon erefs:
     - both refer to central curvepieces with the same `curve_id`
     - the incoming central curvepiece has `anyon_count` one less than the outoing one
 """
-function anyon_is_valid(t::Tile)
-
+function is_anyon_valid(t::Tile)
+    num_anyon_erefs(t) ∈ (0, 1, 2) || return false
+    incoming, outgoing = ordered_central_curvepieces(t)
+    if num_anyon_erefs(t) == 2
+        incoming.curve_id == outgoing.curve_id || return false
+        incoming.anyon_count == outgoing.anyon_count - 1 || return false
+    end
+    true
 end

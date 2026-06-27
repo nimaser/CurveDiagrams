@@ -3,7 +3,7 @@ module CurveDiagrams
 export EndpointDirection, IN, OUT
 export CurvepieceEndpoint, AnyonEndpoint, EdgeEndpoint
 export Curvepiece, change_endpoint_location
-include("tile/curvepiece.jl")
+include("curvepiece.jl")
 
 export EndpointRef, curvepiece_partner
 export Tile
@@ -26,14 +26,15 @@ export endpoint, curvepiece_partner_type, tile_partner
 # curvepieces
 export curvepiece_ids, curvepiece
 export central_curvepiece_ids, is_central_curvepiece, other_central_curvepiece_id
+export ordered_central_curvepieces
 export curve_id, anyon_count
 export u_turn_curvepiece_ids, hugs_corner, nesting_hierarchy
 # validation
-export violated_partitions, is_complete, anyon_is_valid
+export violated_partitions, is_complete, is_anyon_valid
 include("tile/public_getters.jl")
 
 export insert_curvepiece!, move_endpoint!, remove_curvepiece!
-export edge_merge!, edge_split!, anyon_merge!, anyon_split!
+export edge_split!, edge_merge!, anyon_split!, anyon_merge!
 export reverse_curvepiece!, set_curvepiece_metadata!
 include("tile/public_mutators.jl")
 

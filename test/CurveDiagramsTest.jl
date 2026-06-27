@@ -3,11 +3,8 @@ module CurveDiagramsTest
 using ReTest
 using CurveDiagrams
 
-### test file hierarchy mirrors src file hierarchy ###
+include("curvepiece.jl")
 
-MAXTILESIZE = 10
-
-include("tile/curvepiece.jl")
 # include("tile/tile.jl")
 # include("tile/internal_mutators.jl")
 # include("tile/public_mutators.jl")
