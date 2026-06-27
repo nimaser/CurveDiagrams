@@ -1,48 +1,55 @@
 """
-A curvepiece endpoint's direction will either be into or out of a tile, or into
-or out of an anyon, if the endpoint is located on an edge or on an anyon
+Every `CurvepieceEndpoint` has an `EndpointDirection`, which will either be `IN`
+to or `OUT` of a tile/anyon, if the endpoint is located on a tile edge/anyon
 respectively.
 """
 @enum EndpointDirection IN OUT
 
 """
-Every curvepiece has two endpoints which either
-- are both located on tile edges
-- have one located on an edge and one located on an anyon
-An endpoint's 'curvepiece partner' is the other endpoint in the same curvepiece.
+Every `Curvepiece` has two `CurvepieceEndpoint`s, where either
+- both are located on tile edges
+- one is located on an edge and the other is located on an anyon
 
-A curvepiece is completely defined by the locations of its endpoints, as the body
-of each curvepiece can be freely deformed within the tile without affecting the
-curve diagram the curvepiece is a part of, as long as its endpoints remain fixed
-and it does not intersect any other curvepieces.
+A `CurvepieceEndpoint`'s '**curvepiece partner**' is the other `CurvepieceEndpoint`
+in the same curvepiece.
+
+A `Curvepiece` is traversed in a certain direction, inherited from the traversal
+direction of its `Curve`. Therefore, its endpoints have a natural ordering, with
+one coming first and the other coming last. See `_is_ordered` for more.
+
+A `Curvepiece` is completely defined by the locations of its endpoints, as the
+body of each curvepiece can be freely deformed within the tile without affecting
+the `Curve` the curvepiece is a part of, as long as its endpoints remain fixed
+location-wise (and it does not intersect any other curvepieces, ensuring that the
+overall curve diagram has no intersections).
 """
 abstract type CurvepieceEndpoint end
 
 """
-An anyon endpoint has a `direction`, but no location information, because
-there isn't any ordering of the endpoints on an anyon like there is with
-endpoints on an edge.
-"""
-struct AnyonEndpoint <: CurvepieceEndpoint
-    direction::EndpointDirection
-end
-
-"""
-An edge endpoint has a `direction` and a location, consisting of:
+An `EdgeEndpoint` has a `direction` and a location, the latter consisting of:
 - `edge`, which edge of the tile the endpoint is on
 - `pos`, the clockwise position of the endpoint along the edge: for example, if
 there are three endpoints on an edge, then traversing clockwise they will have
 `pos` = 1, 2, and 3 respectively
 
 The relative ordering of edge endpoints is very important, as careless swapping
-of endpoints could lead to two curvepieces intersecting. Note that the position
+of endpoints could lead to two curvepieces intersecting. Note that the `pos`
 of an endpoint is not absolute, but is relative to the other endpoints present
 on that edge, which means it can change during tile mutation.
 """
 struct EdgeEndpoint <: CurvepieceEndpoint
     direction::EndpointDirection
-    edge::Int
-    pos::Int
+    edge::Unsigned
+    pos::Unsigned
+end
+
+"""
+An `AnyonEndpoint` has a `direction`, but no location information, because
+there isn't any ordering of the endpoints on an anyon (like there is with
+endpoints on an edge).
+"""
+struct AnyonEndpoint <: CurvepieceEndpoint
+    direction::EndpointDirection
 end
 
 """
@@ -63,8 +70,9 @@ function _validate_endpoints(a::CurvepieceEndpoint, b::CurvepieceEndpoint)
 end
 
 """
-Partial order (on valid endpoint pairs) that reflects how an endpoint would be
-encountered while traversing a curve diagram through the tile.
+Partial order (on valid endpoint pairs) that reflects how a pair of curvepiece
+endpoints would be encountered while traversing a `Curve` through a tile. This
+ordering is entirely determined by the endpoints' types and directions.
 
 Valid pair possibilities and their orders:
 - Edge(IN) before Edge(OUT)
@@ -78,34 +86,35 @@ function _is_ordered(a::CurvepieceEndpoint, b::CurvepieceEndpoint)
 end
 
 """
-A curvepiece is a piece of a curve diagram that lies inside a tile. Each curvepiece
-has
-- `curve_id`, a unique id specifying which curve diagram the curvepiece is part of
+A `Curvepiece` is a piece of a `Curve` that lies inside a tile. Each has
+two `CurvepieceEndpoints`, and must either:
+- pass through the tile completely, meaning both of its endpoints are on edges
+- go to the anyon from the tile edge, or vice versa, meaning one endpoint is on
+an edge and one is on the anyon
+
+These two types of curvepieces are called '**boundary**' and '**central**'
+curvepieces respectively, where central curvepieces may be '**incoming**' or
+'**outgoing**', going from the edge to the anyon or vice versa respectively.
+
+`Curve`s have a traversal direction, which curvepieces inherit. This in turn
+means that their endpoints are ordered. See `_is_ordered` for more. The first/
+econd endpoints encountered in forward-traversal of the curvepiece `cp` can be
+found with `first(cp)`/`last(cp)` respectively.
+
+Fields:
+- `curve_id`, an id specifying which curve the curvepiece is part of
 - `anyon_count`, which specifies which anyon in the curve diagram this curvepiece
   comes after: that is, when traversing a curve diagram, any curve pieces after
-  encountering the nth anyon will have an `anyon_count` of n
+  encountering the nth anyon will have an `anyon_count` of n; see `Curve` for more
+- `endpoints`, a 2-tuple of the curvepiece's two `CurvepieceEndpoints`, stored
+in forward-traversal order
 
-In addition, each curvepiece has two endpoints which are stored in the order they
-are encountered while traversing the curve diagram, in the 2-tuple `endpoints`.
-The '**curvepiece partner**' of `endpoints[1]` is `endpoints[2]`, and vice versa.
-
-A curvepiece must either
-- pass through a tile completely, so both of its endpoints are on edges
-- go to the anyon from the tile edge, or vice versa, so one endpoint is on an
-edge and one is on the anyon
-
-These two types of curvepieces are called '**boundary**'/'**central**' curvepieces
-respectively, where central curvepieces may be '**incoming**' or '**outgoing**',
-going from the edge to the anyon or vice versa respectively.
-
-Each curvepiece in a tile has an id unique to the curvepieces in that tile. This
-value is used as a key to lookup the curvepiece struct associated with each
-curvepiece, and therefore access its metadata. Other than the curvepiece id,
-a `Curvepiece` struct stores all of the information about a specific curvepiece.
+Note that the '**curvepiece partner**' of `endpoints[1]` is `endpoints[2]`, and
+vice versa.
 """
 struct Curvepiece
     curve_id::Int
-    anyon_count::Int
+    anyon_count::Unsigned
     endpoints::NTuple{2, CurvepieceEndpoint}
     # validates the endpoint pair and stores them in forward-traversal order
     function Curvepiece(curve_id::Int, anyon_count::Int,
@@ -115,6 +124,12 @@ struct Curvepiece
         new(curve_id, anyon_count, (ep1, ep2))
     end
 end
+
+"""Return the first endpoint of `cp`."""
+@inline first(cp::Curvepiece) = first(cp.endpoints)
+
+"""Return the last endpoint of `cp`."""
+@inline last(cp::Curvepiece) = last(cp.endpoints)
 
 """
 Return a new `Curvepiece` which is the result of changing the location of `cp`'s
@@ -142,17 +157,21 @@ direction of the target endpoint will need to be set in order to ensure that the
 curvepiece direction is preserved and the curvepiece is valid:
 - for cases 1 & 2, the new endpoint's direction will be opposite the staying one's
 direction
-- for cases 3 & 4 the new endpoint's direction will be the same as the staying one's
-direction
+- for cases 3 & 4 the new endpoint's direction will be the same as the staying
+one's direction
 
 This function is useful:
 - when a curvepiece's endpoint location is shifted along an edge due to other
 endpoints being added/removed before it on that edge; updating the location after
 these shifts is necessary because endpoint locations are relative to all endpoints
 present rather than absolute
-- when an `Endpoint` has been moved from the anyon to the edge (or vice versa)
+- when a `CurvepieceEndpoint` has been moved from the anyon to the edge (or vice
+versa)
 """
-function change_endpoint_location(cp::Curvepiece, endpoint_idx::Int, edge::Union{Nothing,Int}, pos::Union{Nothing,Int})
+function change_endpoint_location(
+    cp::Curvepiece, endpoint_idx::Unsigned,
+    edge::Union{Nothing,Int}, pos::Union{Nothing,Int}
+)
     ep_moving = cp.endpoints[endpoint_idx]
     if ep_moving isa EdgeEndpoint
         if edge === nothing || pos === nothing
@@ -173,7 +192,7 @@ function change_endpoint_location(cp::Curvepiece, endpoint_idx::Int, edge::Union
         new_ep = EdgeEndpoint(direction, edge, pos)
     end
     # find which endpoint eref refers to, then replace that one with new endpoint
-    new_eps = endpoint_idx == 1 ? (new_ep, cp.endpoints[2]) : (cp.endpoints[1], new_ep)
+    new_eps = endpoint_idx == 1 ? (new_ep, last(cp)) : (first(cp), new_ep)
     # case 6 errors here
     Curvepiece(cp.curve_id, cp.anyon_count, new_eps...)
 end

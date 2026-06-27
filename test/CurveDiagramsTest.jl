@@ -5,6 +5,8 @@ using CurveDiagrams
 
 ### test file hierarchy mirrors src file hierarchy ###
 
+MAXTILESIZE = 10
+
 include("tile/curvepiece.jl")
 # include("tile/tile.jl")
 # include("tile/internal_mutators.jl")

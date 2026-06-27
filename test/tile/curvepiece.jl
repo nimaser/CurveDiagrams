@@ -1,101 +1,133 @@
-@testset "CurvepieceEndpoint; Curvepiece" begin
-    # random filler values that shouldn't affect test results
-    maxrandval = 6
-    curve_id, anyon_count = rand(1:maxrandval), rand(1:maxrandval)
-    edge1, pos1 = rand(1:maxrandval), rand(1:maxrandval)
-    edge2, pos2 = rand(1:maxrandval), rand(1:maxrandval)
+@testset "CurvepieceEndpoint; Curvepiece; first; last" begin
+    # random fillers
+    cid, acount = rand(Int), rand(UInt)
+    edge1, pos1 = rand(UInt), rand(UInt)
+    edge2, pos2 = rand(UInt), rand(UInt)
     # construct four representative curvepiece endpoints
-    ae_in = AnyonEndpoint(IN)
-    ae_out = AnyonEndpoint(OUT)
-    ee_in = EdgeEndpoint(IN, edge1, pos1)
-    ee_out = EdgeEndpoint(OUT, edge2, pos2)
+    a_in  = AnyonEndpoint(IN)
+    a_out = AnyonEndpoint(OUT)
+    e_in  = EdgeEndpoint(IN, edge1, pos1)
+    e_out = EdgeEndpoint(OUT, edge2, pos2)
     # check that they have the right type hierarchy
-    @test ae_in isa CurvepieceEndpoint
-    @test ae_out isa CurvepieceEndpoint
-    @test ee_in isa CurvepieceEndpoint
-    @test ee_out isa CurvepieceEndpoint
+    for ep in (a_in, a_out, e_in, e_out) @test ep isa CurvepieceEndpoint end
     # check that two anyon endpoints cannot be on the same curvepiece
-    @test_throws ArgumentError Curvepiece(curve_id, anyon_count, ae_in, ae_in)
-    @test_throws ArgumentError Curvepiece(curve_id, anyon_count, ae_in, ae_out)
-    @test_throws ArgumentError Curvepiece(curve_id, anyon_count, ae_out, ae_in)
-    @test_throws ArgumentError Curvepiece(curve_id, anyon_count, ae_out, ae_out)
+    @test_throws ArgumentError Curvepiece(cid, acount, a_in , a_in )
+    @test_throws ArgumentError Curvepiece(cid, acount, a_in , a_out)
+    @test_throws ArgumentError Curvepiece(cid, acount, a_out, a_in )
+    @test_throws ArgumentError Curvepiece(cid, acount, a_out, a_out)
     # check that two edge endpoints on a curvepiece cannot have the same direction
-    @test_throws ArgumentError Curvepiece(curve_id, anyon_count, ee_in, ee_in)
-    @test_throws ArgumentError Curvepiece(curve_id, anyon_count, ee_out, ee_out)
+    @test_throws ArgumentError Curvepiece(cid, acount, e_in , e_in )
+    @test_throws ArgumentError Curvepiece(cid, acount, e_out, e_out)
     # check that an edge and anyon endpoint in the same curvepiece cannot have different directions
-    @test_throws ArgumentError Curvepiece(curve_id, anyon_count, ae_in, ee_out)
-    @test_throws ArgumentError Curvepiece(curve_id, anyon_count, ae_out, ee_in)
-    @test_throws ArgumentError Curvepiece(curve_id, anyon_count, ee_in, ae_out)
-    @test_throws ArgumentError Curvepiece(curve_id, anyon_count, ee_out, ae_in)
-    # check that endpoints are automatically correctly ordered for the three valid cases
-    @test Curvepiece(curve_id, anyon_count, ee_in, ae_in)      == Curvepiece(curve_id, anyon_count, ae_in, ee_in)
-    @test Curvepiece(curve_id, anyon_count, ee_out, ae_out)    == Curvepiece(curve_id, anyon_count, ae_out, ee_out)
-    @test Curvepiece(curve_id, anyon_count, ee_in, ee_out)     == Curvepiece(curve_id, anyon_count, ee_out, ee_in)
+    @test_throws ArgumentError Curvepiece(cid, acount, a_in , e_out)
+    @test_throws ArgumentError Curvepiece(cid, acount, a_out, e_in )
+    @test_throws ArgumentError Curvepiece(cid, acount, e_in , a_out)
+    @test_throws ArgumentError Curvepiece(cid, acount, e_out, a_in )
+    # check that endpoints are automatically, consistently, and correctly ordered
+    cp1 = Curvepiece(cid, acount, e_in , a_in )
+    cp2 = Curvepiece(cid, acount, a_out, e_out)
+    cp3 = Curvepiece(cid, acount, e_in , e_out)
+    @test cp1 == Curvepiece(cid, acount, a_in , e_in )
+    @test cp2 == Curvepiece(cid, acount, e_out, a_out)
+    @test cp3 == Curvepiece(cid, acount, e_out, e_in )
+    @test first(cp1) == cp1.endpoints[1] == e_in
+    @test first(cp2) == cp2.endpoints[1] == a_out
+    @test first(cp3) == cp3.endpoints[1] == e_in
+    @test last(cp1) == cp1.endpoints[2] == a_in
+    @test last(cp2) == cp2.endpoints[2] == e_out
+    @test last(cp3) == cp3.endpoints[2] == e_out
 end
 
 @testset "change_endpoint_location" begin
-    maxrandval = 6
-    curve_id, anyon_count = rand(1:maxrandval), rand(1:maxrandval)
+    # random fillers
+    cid, acount = rand(Int), rand(UInt)
     # initial edge endpoint locations
-    edge1, pos1 = rand(1:maxrandval), rand(1:maxrandval)
-    edge2, pos2 = rand(1:maxrandval), rand(1:maxrandval)
+    edge1, pos1 = rand(UInt), rand(UInt)
+    edge2, pos2 = rand(UInt), rand(UInt)
     # new edge endpoint location
-    edge3, pos3 = rand(1:maxrandval), rand(1:maxrandval)
-    # boundary curvepiece's edge endpoint moved to another edge
-    let changed_idx = rand(1:2) # choose endpoint to change
-        eps = EdgeEndpoint(IN, edge1, pos1), EdgeEndpoint(OUT, edge2, pos2)
-        cp = Curvepiece(curve_id, anyon_count, eps...)
-        # change chosen endpoint's location
-        new_cp = change_endpoint_location(cp, changed_idx, edge3, pos3)
-        # fetch new endpoints
-        changed_ep = new_cp.endpoints[changed_idx]
-        unchanged_ep = new_cp.endpoints[3-changed_idx]
-        # check that they're correct
-        dir3 = changed_idx == 1 ? IN : OUT
-        @test changed_ep == EdgeEndpoint(dir3, edge3, pos3)
-        @test unchanged_ep == (changed_idx == 1 ? EdgeEndpoint(OUT, edge2, pos2) : EdgeEndpoint(IN, edge1, pos1))
+    edge3, pos3 = rand(UInt), rand(UInt)
+
+    # we just test every possibility
+
+    ### CASE 1: E, E -> E ###
+    let eps = EdgeEndpoint(IN, edge1, pos1), EdgeEndpoint(OUT, edge2, pos2)
+        cp = Curvepiece(cid, acount, eps...)
+        let # changed_idx = 1
+            new_cp = change_endpoint_location(cp, 1, edge3, pos3)
+            @test first(new_cp) == EdgeEndpoint(IN, edge3, pos3) # changed
+            @test last(new_cp) == last(cp) # unchanged
+        end
+        let # changed_idx = 2
+            new_cp = change_endpoint_location(cp, 2, edge3, pos3)
+            @test first(new_cp) == first(cp) # unchanged
+            @test last(new_cp) == EdgeEndpoint(OUT, edge3, pos3) # changed
+        end
     end
-    # boundary curvepiece's edge endpoint moved to anyon
-    let changed_idx = rand(1:2) # choose which endpoint to chnage
-        eps = EdgeEndpoint(IN, edge1, pos1), EdgeEndpoint(OUT, edge2, pos2)
-        cp = Curvepiece(curve_id, anyon_count, eps...)
-        # change chosen endpoint's location
-        new_cp = change_endpoint_location(cp, changed_idx, nothing, nothing)
-        # fetch new endpoints
-        changed_ep = new_cp.endpoints[changed_idx]
-        unchanged_ep = new_cp.endpoints[3-changed_idx]
-        # check that they're correct
-        dir3 = changed_idx == 1 ? OUT : IN
-        @test changed_ep == AnyonEndpoint(dir3)
-        @test unchanged_ep == (changed_idx == 1 ? EdgeEndpoint(OUT, edge2, pos2) : EdgeEndpoint(IN, edge1, pos1))
+
+    ### CASE 2: E, A -> E ###
+    let eps = AnyonEndpoint(OUT), EdgeEndpoint(OUT, edge2, pos2) # changed_idx = 1
+        cp = Curvepiece(cid, acount, eps...)
+        new_cp = change_endpoint_location(cp, 1, edge3, pos3)
+        @test first(new_cp) == EdgeEndpoint(IN, edge3, pos3) # changed
+        @test last(new_cp) == last(cp) # unchanged
     end
-    # central curvepiece's anyon endpoint moved to edge
-    let anyon_idx = rand(1:2) # choose curvepiece direction
-        eps = anyon_idx == 1 ? (AnyonEndpoint(OUT), EdgeEndpoint(OUT, edge2, pos2)) : (EdgeEndpoint(IN, edge1, pos1), AnyonEndpoint(IN))
-        cp = Curvepiece(curve_id, anyon_count, eps...)
-        # change anyon endpoint's location
-        new_cp = change_endpoint_location(cp, anyon_idx, edge3, pos3)
-        # fetch new endpoints
-        changed_ep = new_cp.endpoints[anyon_idx]
-        unchanged_ep = new_cp.endpoints[3-anyon_idx]
-        # check that they're correct
-        dir3 = anyon_idx == 1 ? IN : OUT
-        @test changed_ep == EdgeEndpoint(dir3, edge3, pos3)
-        @test unchanged_ep == (anyon_idx == 1 ? EdgeEndpoint(OUT, edge2, pos2) : EdgeEndpoint(IN, edge1, pos1))
+    let eps = EdgeEndpoint(IN, edge1, pos1), AnyonEndpoint(IN) # changed_idx = 2
+        cp = Curvepiece(cid, acount, eps...)
+        new_cp = change_endpoint_location(cp, 2, edge3, pos3)
+        @test first(new_cp) == first(cp) # unchanged
+        @test last(new_cp) == EdgeEndpoint(OUT, edge3, pos3) # changed
     end
-    # central curvepiece's anyon endpoint moved to anyon
-    let anyon_idx = rand(1:2) # choose curvepiece direction
-        eps = anyon_idx == 1 ? (AnyonEndpoint(OUT), EdgeEndpoint(OUT, edge2, pos2)) : (EdgeEndpoint(IN, edge1, pos1), AnyonEndpoint(IN))
-        cp = Curvepiece(curve_id, anyon_count, eps...)
-        # change anyon endpoint's location
-        new_cp = change_endpoint_location(cp, anyon_idx, nothing, nothing)
-        # fetch new endpoints
-        anyon_ep = new_cp.endpoints[anyon_idx]
-        edge_ep = new_cp.endpoints[3-anyon_idx]
-        # check that they're correct
-        dir3 = anyon_idx == 1 ? OUT : IN
-        @test anyon_ep == AnyonEndpoint(dir3)
-        @test edge_ep == (anyon_idx == 1 ? EdgeEndpoint(OUT, edge2, pos2) : EdgeEndpoint(IN, edge1, pos1))
+
+    ### CASE 3: E, E -> A ###
+    let eps = EdgeEndpoint(IN, edge1, pos1), EdgeEndpoint(OUT, edge2, pos2)
+        cp = Curvepiece(cid, acount, eps...)
+        let # changed_idx = 1
+            new_cp = change_endpoint_location(cp, 1, nothing, nothing)
+            @test first(new_cp) == AnyonEndpoint(OUT) # changed
+            @test last(new_cp) == last(cp) # unchanged
+        end
+        let # changed_idx = 2
+            new_cp = change_endpoint_location(cp, 2, nothing, nothing)
+            @test first(new_cp) == first(cp) # unchanged
+            @test last(new_cp) == AnyonEndpoint(IN) # changed
+        end
     end
-    # TODO add two other cases
+
+    ### CASE 4: A, E -> E ###
+    let eps = EdgeEndpoint(IN, edge1, pos1), AnyonEndpoint(IN) # changed_idx = 1
+        cp = Curvepiece(cid, acount, eps...)
+        new_cp = change_endpoint_location(cp, 1, edge3, pos3)
+        @test first(new_cp) == EdgeEndpoint(IN, edge3, pos3) # changed
+        @test last(new_cp) == last(cp) # unchanged
+    end
+    let eps = AnyonEndpoint(OUT), EdgeEndpoint(OUT, edge2, pos2) # changed_idx = 2
+        cp = Curvepiece(cid, acount, eps...)
+        new_cp = change_endpoint_location(cp, 2, edge3, pos3)
+        @test first(new_cp) == first(cp) # unchanged
+        @test last(new_cp) == EdgeEndpoint(OUT, edge3, pos3) # changed
+    end
+
+    ### CASE 5: E, A -> A ###
+    let eps = AnyonEndpoint(OUT), EdgeEndpoint(OUT, edge2, pos2) # changed_idx = 1
+        cp = Curvepiece(cid, acount, eps...)
+        new_cp = change_endpoint_location(cp, 1, nothing, nothing)
+        @test first(new_cp) == first(cp) # unchanged
+        @test last(new_cp) == last(cp) # unchanged
+    end
+    let eps = EdgeEndpoint(IN, edge1, pos1), AnyonEndpoint(IN) # changed_idx = 2
+        cp = Curvepiece(cid, acount, eps...)
+        new_cp = change_endpoint_location(cp, 2, nothing, nothing)
+        @test first(new_cp) == first(cp) # unchanged
+        @test last(new_cp) == last(cp) # unchanged
+    end
+
+    ### CASE 6: A, E -> A ###
+    let eps = EdgeEndpoint(IN, edge1, pos1), AnyonEndpoint(IN) # changed_idx = 1
+        cp = Curvepiece(cid, acount, eps...)
+        @test_throws ArgumentError new_cp = change_endpoint_location(cp, 1, nothing, nothing)
+    end
+    let eps = AnyonEndpoint(OUT), EdgeEndpoint(OUT, edge2, pos2) # changed_idx = 2
+        cp = Curvepiece(cid, acount, eps...)
+        @test_throws ArgumentError new_cp = change_endpoint_location(cp, 2, nothing, nothing)
+    end
 end

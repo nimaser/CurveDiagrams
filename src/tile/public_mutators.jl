@@ -1,106 +1,4 @@
 ###############################################################################
-# HELPERS
-###############################################################################
-
-"""
-Collects all `EndpointRef`s in the clockwise arc from `(edge1, pos1)` (inclusive)
-to `(edge2, pos2)` (exclusive) on the boundary of `t`. Assumes that there is an
-eref at `(edge1, pos1)`.
-"""
-function _erefs_between(t::Tile, edge1::Int, pos1::Int, edge2::Int, pos2::Int)
-    arc = EndpointRef[]
-    # if the arc is entirely contained within an edge
-    if edge1 == edge2 && pos1 <= pos2
-        for p in pos1:(pos2 - 1)
-            push!(arc, edge_eref(t, edge1, p))
-        end
-    else
-        # get endpoints on the remainder of edge1
-        for p in pos1:num_edge_erefs(t, edge1)
-            push!(arc, edge_eref(t, edge1, p))
-        end
-        # get all endpoints on intervening edges between edge1 and edge2
-        e = next_edge(t, edge1)
-        while e != edge2
-            for p in 1:num_edge_erefs(t, e)
-                push!(arc, edge_eref(t, e, p))
-            end
-            e = next_edge(t, e)
-        end
-        # get endpoints on the first part of edge2
-        for p in 1:(pos2 - 1)
-            push!(arc, edge_eref(t, edge2, p))
-        end
-    end
-    arc
-end
-
-"""
-Return a list of all `EndpointRef`s in `erefs` whose tile partners in `t`, if
-they exist, are not in `erefs`.
-
-Each element of `erefs` must refer to an `EdgeEndpoint`.
-"""
-function _erefs_with_external_tile_partner(t::Tile, erefs::Set{EndpointRef})
-    externaltilepartner::Set{EndpointRef}=Set()
-    for e in erefs
-        tp = tile_partner(t, e, EdgeEndpoint)
-        if tp !== nothing && tp ∉ erefs
-            push!(externaltilepartner, e)
-        end
-    end
-    externaltilepartner
-end
-
-"""
-Return the set of partitions in `t` which would be violated if a new partition
-with endpoints at `(edge1, pos1)` and `(edge2, pos2)` was created. Partitions
-formed using an eref in `exclude` are not considered, meaning they will not be
-in the output even if they are violated by the new partition.
-
-A partition P in a tile is a pair of edge endpoints which are tile partners. Let
-- P1 and P2 be the two endpoints respectively
-- PA1 be the set of endpoints contained in the clockwise walk from P1 to P2
-- PA2 be the set of endpoints contained in the counterclockwise walk from P1 to P2
-- PC be the set of curvepieces which contain P1 and/or P2
-
-Because tile partners are unique, P can be defined by either P1 or P2 alone.
-
-PA1 and PA2 are the 'clockwise arc' and 'counterclockwise arc' of the partition
-respectively. The sets PA1, PA2, and {A, B} partition the set of edge erefs in
-the tile, hence the name.
-
-If P1 and P2 are on the same boundary curvepiece, PC will just contain it. If they
-are not, then by virtue of being tile partners, they must be on the two central
-curvepieces in the tile, which will both be in PC. In either case, the curvepieces
-in PC split the area of the tile into two parts.
-
-A partition P is violated by another partition Q if the endpoints Q1 and Q2 of Q
-are in different arcs of P. This is equivalent to saying that the curvepieces in
-PC intersect the curvepieces in QC, which can be verified easily by drawing.
-
-Therefore, this function detects, given the prospective endpoint locations of
-either a boundary curvepiece or a pair of central curvepieces, whether inserting
-those curvepieces will cause any curvepiece intersections with curvepieces already
-in the tile.
-
-Returns a set of erefs which each define one existing partition which would be
-violated by the proposed new partition.
-"""
-function _violated_partitions(t::Tile, edge1::Int, pos1::Int, edge2::Int, pos2::Int;
-    exclude::Set{EndpointRef}=Set{EndpointRef}()
-)
-    arc = Set(_erefs_between(t, edge1, pos1, edge2, pos2))
-    full_exclude = copy(exclude)
-    for e in exclude
-        tp = tile_partner(t, e, EdgeEndpoint)
-        if tp !== nothing push!(full_exclude, tp) end
-    end
-    filter!(eref -> eref ∉ full_exclude, arc)
-    _erefs_with_external_tile_partner(t, arc)
-end
-
-###############################################################################
 # ONE-CURVEPIECE OPERATIONS: INSERT, MOVE, REMOVE
 ###############################################################################
 
@@ -129,7 +27,7 @@ function insert_curvepiece!(t::Tile, curve_id::Int, anyon_count::Int,
     if !allow_intersections
         # pos2 is in post-pos1-insertion coordinates; convert to pre-insertion for validation
         pos2_pre = (edge1 == edge2 && pos2 > pos1) ? pos2 - 1 : pos2
-        vp = _violated_partitions(t, edge1, pos1, edge2, pos2_pre)
+        vp = violated_partitions(t, edge1, pos1, edge2, pos2_pre)
         isempty(vp) || throw(ArgumentError("curvepiece insertion at ($edge1,$pos1)→($edge2,$pos2) violates partitions $vp"))
     end
     # insert curvepiece
@@ -165,7 +63,7 @@ function insert_curvepiece!(t::Tile, curve_id::Int, anyon_count::Int,
     end
     if num_anyon_erefs(t) == 1 && !allow_intersections
         existing_edge_ep = endpoint(t, curvepiece_partner(only(anyon_erefs(t))))
-        vp = _violated_partitions(t, edge, pos, existing_edge_ep.edge, existing_edge_ep.pos)
+        vp = violated_partitions(t, edge, pos, existing_edge_ep.edge, existing_edge_ep.pos)
         isempty(vp) || throw(ArgumentError("curvepiece insertion at ($edge,$pos)→anyon violates partitions $vp"))
     end
     cp_id = _allocate_cp_id!(t)
@@ -176,7 +74,7 @@ function insert_curvepiece!(t::Tile, curve_id::Int, anyon_count::Int,
     edge_which = cp.endpoints[1] isa EdgeEndpoint ? 1 : 2
     anyon_which = 3 - edge_which
     _insert_edge_eref!(t, EndpointRef(cp_id, edge_which), edge, pos)
-    _push_anyon_eref!(t, EndpointRef(cp_id, anyon_which))
+    _insert_anyon_eref!(t, EndpointRef(cp_id, anyon_which))
     cp_id
 end
 
@@ -221,19 +119,19 @@ function move_endpoint!(t::Tile, eref::EndpointRef, edge::Int, pos::Int;
         # cases 1 and 2
         if ep_staying isa EdgeEndpoint && ep_target isa EdgeEndpoint
             if ep_moving isa EdgeEndpoint push!(exclude_erefs, eref) end
-            vp = _violated_partitions(t, ep_staying.edge, ep_staying.pos, edge, pos; exclude=exclude_erefs)
+            vp = violated_partitions(t, ep_staying.edge, ep_staying.pos, edge, pos; exclude=exclude_erefs)
         # case 3
         elseif ep_staying isa EdgeEndpoint && ep_moving isa EdgeEndpoint
             if num_anyon_erefs(t) == 2 throw(ArgumentError("cannot have more than two anyon erefs")) end
             if has_anyon_erefs(t)
                 other_ep = endpoint(t, curvepiece_partner(only(anyon_erefs(t))))
-                vp = _violated_partitions(t, ep_staying.edge, ep_staying.pos, other_ep.edge, other_ep.pos)
+                vp = violated_partitions(t, ep_staying.edge, ep_staying.pos, other_ep.edge, other_ep.pos)
             end
         # case 4
         elseif ep_staying isa AnyonEndpoint && ep_target isa EdgeEndpoint
             if num_anyon_erefs(t) == 2
                 other_ep = endpoint(t, tile_partner(t, eref))
-                vp = _violated_partitions(t, other_ep.edge, other_ep.pos, edge, pos)
+                vp = violated_partitions(t, other_ep.edge, other_ep.pos, edge, pos)
             end
         end
         # if intersections exist
@@ -247,7 +145,7 @@ function move_endpoint!(t::Tile, eref::EndpointRef, edge::Int, pos::Int;
         # insertion of new eref before old eref on the same edge will shift the old eref's position
         if edge == ep_moving.edge && pos <= ep_moving.pos removal_pos += 1 end
     else
-        _push_anyon_eref!(t, eref)
+        _insert_anyon_eref!(t, eref)
     end
     # swap in new curvepiece so that removals update its endpoints rather than the old cp's endpoints
     t._curvepieces[eref.cp_id] = new_cp
@@ -409,8 +307,17 @@ function edge_split!(t::Tile, cp_id::Int, edge::Int, pos::Int)
     # final positions (fp1, fp2) of the two new erefs, paired with epA's and epB's
     # sides respectively, in the frame where both have been inserted but epA/epB
     # have not yet been removed
+    # e1_check_eref: the edge eref corresponding to e1 for the _erefs_between check.
+    # For edge-to-edge cps, this is epA's eref (endpoint[1]). For anyon cps where
+    # epA is an AnyonEndpoint, e1 is the other central cp's edge endpoint (tile partner).
+    e1_check_eref = if epA isa EdgeEndpoint
+        EndpointRef(cp_id, 1)
+    else
+        tile_partner(t, EndpointRef(cp_id, 2), EdgeEndpoint)
+    end
     positions = [pos+1, pos]
-    if !needs_check || (edge, pos) == (e2_edge, e2_pos) || EndpointRef(cp_id, 1) ∈ _erefs_between(t, e2_edge, e2_pos, edge, pos)
+    if !needs_check || (edge, pos) == (e2_edge, e2_pos) ||
+        (e1_check_eref !== nothing && e1_check_eref ∈ _erefs_between(t, e2_edge, e2_pos, edge, pos))
         reverse!(positions)
     end
     fp1, fp2 = positions
@@ -564,7 +471,7 @@ function reverse_curvepiece!(t::Tile, cp_id::Int)
             t._edge_erefs[ep.edge][ep.pos] = new_eref
         else
             _remove_anyon_eref!(t, old_eref)
-            _push_anyon_eref!(t, new_eref)
+            _insert_anyon_eref!(t, new_eref)
         end
     end
     nothing

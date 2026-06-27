@@ -9,7 +9,14 @@ struct CurvepieceRef
     cp_id::Int
 end
 
-"""A curve diagram is a list of sequential curvepieces."""
+"""
+A `CurveDiagram` is a directed curve which starts and ends at tile anyons. It
+snakes through the lattice, not intersecting any other curve diagram,
+
+Curve diagrams must start and end at anyons, meaning they must start and end with
+outgoing and incoming central curvepieces respectively.
+
+"""
 const CurveDiagram = Vector{CurvepieceRef}
 
 """

@@ -1,6 +1,6 @@
-###############################################################################
+################################################################################
 # TILE GEOMETRY
-###############################################################################
+################################################################################
 
 """Return the number of edges in the tile `t`."""
 @inline num_edges(t::Tile) = length(t._edge_erefs)
@@ -11,57 +11,63 @@
 """Return the prev edge number after edge `edge` in the tile `t`, wrapping around."""
 @inline prev_edge(t::Tile, edge::Int) = mod1(edge - 1, num_edges(t))
 
-###############################################################################
+################################################################################
 # EREF GETTERS
-###############################################################################
+################################################################################
 
-"""Returns a clockwise-ordered list of all `EndpointRef`s located on the edges of tile `t`."""
-@inline all_edge_erefs(t::Tile) = collect(Iterators.flatten(t._edge_erefs))
+"""
+Return a clockwise-ordered iterator over all `EndpointRef`s on `t`'s edges,
+starting at pos `1` on edge `1`."""
+@inline all_edge_erefs(t::Tile) = Iterators.flatten(t._edge_erefs)
 
 
-"""The number of endpoints present on edge `edge` in `t`."""
+"""Return the number of `EndpointRef`s present on `t`'s edge `edge`."""
 @inline num_edge_erefs(t::Tile, edge::Int) = length(t._edge_erefs[edge])
 
-"""Whether the edge `edge` in tile `t` has any endpoints on it."""
+"""Return whether `t`'s edge `edge` has any endpoints on it."""
 @inline has_edge_erefs(t::Tile, edge::Int) = !isempty(t._edge_erefs[edge])
 
-"""Returns a clockwise-ordered list of all `EndpointRef`s located on edge `edge` of tile `t`."""
-@inline edge_erefs(t::Tile, edge::Int) = collect(t._edge_erefs[edge])
+"""Return a clockwise-ordered iterator over all `EndpointRef`s on `t`'s edge `edge`."""
+@inline edge_erefs(t::Tile, edge::Int) = (eref for eref in t._edge_erefs[edge])
 
 
-"""Whether the edge `edge` in tile `t` has any `EndpointRef` at position `pos`."""
+"""Return whether location `(edge, pos)` in `t` has an `EndpointRef`."""
 @inline has_edge_eref(t::Tile, edge::Int, pos::Int) = 1 <= pos <= num_edge_erefs(t, edge)
 
-"""Returns the `EndpointRef` at position `pos` on edge `edge` in tile `t`."""
+"""Return the `EndpointRef` at location `(edge, pos)` in `t`.."""
 @inline edge_eref(t::Tile, edge::Int, pos::Int) = t._edge_erefs[edge][pos]
 
 
-"""Return the number of `EndpointRef`s at tile `t`'s anyon."""
+"""Return the number of `EndpointRef`s at `t`'s anyon."""
 @inline num_anyon_erefs(t::Tile) = length(t._anyon_erefs)
 
-"""Whether there are any `EndpointRef`s at tile `t`'s anyon."""
+"""Return whether there are any `EndpointRef`s at `t`'s anyon."""
 @inline has_anyon_erefs(t::Tile) = !isempty(t._anyon_erefs)
 
-"""Return a list of all `EndpointRef`s at tile `t`'s anyon."""
-@inline anyon_erefs(t::Tile) = collect(t._anyon_erefs)
+"""Return an iterator over all `EndpointRef`s at `t`'s anyon."""
+@inline anyon_erefs(t::Tile) = (eref for eref in t._anyon_erefs)
 
 
-"""Return curvepiece `cp_id`s `EndpointRef`, if it exists, at `t`s anyon. Otherwise return `nothing`."""
+"""
+Return curvepiece `cp_id`s `EndpointRef`, if it exists, at `t`s anyon.
+Otherwise return `nothing`.
+"""
 @inline function anyon_eref(t::Tile, cp_id::Int)
-    for eref in t._anyon_erefs # direct access to avoid allocations during collect() in anyon_erefs(t)
+    for eref in anyon_erefs(t)
         eref.cp_id == cp_id && return eref
     end
     nothing
 end
 
-###############################################################################
+################################################################################
 # EREF TRAVERSAL
-###############################################################################
+################################################################################
 
 """
-Returns the `EndpointRef` next encountered while traversing edge `edge` of `t`
-***clockwise*** starting at position `pos`; returns `nothing` if there is no
-further `EndpointRef` on that edge. Out of bounds `pos` values are allowed.
+Return the `EndpointRef` next encountered while traversing edge `edge` of `t`
+***clockwise*** starting at position `pos`; return `nothing` if there is no
+further `EndpointRef` on that edge. Out of bounds `pos` values are allowed
+and automatically clamped.
 """
 function next_eref(t::Tile, edge::Int, pos::Int)
     if !has_edge_erefs(t, edge) return nothing end
@@ -70,9 +76,10 @@ function next_eref(t::Tile, edge::Int, pos::Int)
 end
 
 """
-Returns the `EndpointRef` next encountered while traversing edge `edge` of `t`
-***counterclockwise*** starting at position `pos`; returns `nothing` if there
-is no further `EndpointRef` on that edge. Out of bounds `pos` values are allowed.
+Return the `EndpointRef` next encountered while traversing edge `edge` of `t`
+***counterclockwise*** starting at position `pos`; return `nothing` if there
+is no further `EndpointRef` on that edge. Out of bounds `pos` values are allowed
+and automatically clamped.
 """
 function prev_eref(t::Tile, edge::Int, pos::Int)
     if !has_edge_erefs(t, edge) return nothing end
@@ -81,14 +88,15 @@ function prev_eref(t::Tile, edge::Int, pos::Int)
 end
 
 """
-Returns the `EndpointRef` next encountered when traversing `t`s edges ***clockwise***
-starting at position `pos` on edge `edge`. Out of bounds `pos` values are allowed.
+Return the `EndpointRef` next encountered when traversing `t`s edges ***clockwise***
+starting at location `(edge, pos)`. Out of bounds `pos` values are allowed and
+automatically clamped.
 
 If there is only one `EndpointRef` on the edges of `t` (for example, in the case
-where there is just one central curvepiece), the `EndpointRef` returned will be
-the one at (`edge`, `pos`), i.e. the one at the starting position.
+where there is just one central curvepiece), and it is at the starting location,
+it will be returned.
 
-If there are no `EndpointRef`s on the edges of `t`, returns `nothing`.
+Return `nothing` if there are no `EndpointRef`s on the edges of `t`.
 """
 function next_eref_wrap(t::Tile, edge::Int, pos::Int)
     # return next eref on the same edge, if it exists
@@ -105,14 +113,15 @@ function next_eref_wrap(t::Tile, edge::Int, pos::Int)
 end
 
 """
-Returns the `EndpointRef` next encountered when traversing `t`s edges ***counterclockwise***
-starting at position `pos` on edge `edge`. Out of bounds `pos` values are allowed.
+Return the `EndpointRef` next encountered when traversing `t`s edges ***counterclockwise***
+starting at location `(edge, pos)`. Out of bounds `pos` values are allowed and
+automatically clamped.
 
 If there is only one `EndpointRef` on the edges of `t` (for example, in the case
-where there is just one central curvepiece), the `EndpointRef` returned will be
-the one at (`edge`, `pos`), i.e. the one at the starting position.
+where there is just one central curvepiece), and it is at the starting location,
+it will be returned.
 
-If there are no `EndpointRef`s on the edges of `t`, returns `nothing`.
+Return `nothing` if there are no `EndpointRef`s on the edges of `t`.
 """
 function prev_eref_wrap(t::Tile, edge::Int, pos::Int)
     # return prev eref on the same edge, if it exists
@@ -129,18 +138,18 @@ function prev_eref_wrap(t::Tile, edge::Int, pos::Int)
 end
 
 """
-Orders the contents of `erefs` according to the order they are encountered when
-traversing the `Tile`s edges clockwise starting at `pos` on `edge` in `t`.
-Out of bounds `pos` values are allowed.
+Return the contents of `erefs` ordered according to the order they are encountered
+when traversing `t`s edges clockwise starting at location `(edge, pos)`. Out of
+bounds `pos` values are allowed and automatically clamped.
 
-Throws an error if any element of `erefs` is not in `t`.
+Throw an error if any element of `erefs` does not refer to an `EdgeEndpoint` in `t`.
 """
-function clockwise_sort(t::Tile, erefs::Set{EndpointRef}, edge::Int, pos::Int)
+function edge_eref_clockwise_sort(t::Tile, erefs::Set{EndpointRef}, edge::Int, pos::Int)
     sorted = EndpointRef[]
     isempty(erefs) && return sorted
     # get first eref to start traversal at
     start = has_edge_eref(t, edge, pos) ? edge_eref(t, edge, pos) : next_eref_wrap(t, edge, pos)
-    start == nothing && throw(ArgumentError("tile has no endpoints"))
+    start == nothing && throw(ArgumentError("tile has no endpoints, but erefs nonempty"))
     # iterate through endpoints, adding to sorted as they are encountered
     current = start
     while true
@@ -154,22 +163,51 @@ function clockwise_sort(t::Tile, erefs::Set{EndpointRef}, edge::Int, pos::Int)
     sorted
 end
 
-###############################################################################
-# ENDPOINTS
-###############################################################################
+"""
+Return a clockwise-ordered iterator over all `EndpointRef`s in the arc from
+`(edge1, pos1)` (inclusive) to `(edge2, pos2)` (inclusive) on the edges of `t`.
+Out of bounds `pos1` and `pos2` values are allowed and automatically clamped.
 
-"""Returns the `Endpoint` in `t` pointed to by `eref`."""
+Return an empty iterator if there are no erefs in the provided range.
+"""
+function edge_eref_clockwise_arc(t::Tile, edge1::Int, pos1::Int, edge2::Int, pos2::Int)
+    # clamp to valid values
+    pos1c = max(pos1, 1)
+    pos2c = min(pos2, num_edge_erefs(t, edge2))
+    # if the arc is entirely contained within an edge
+    if edge1 == edge2 && pos1 <= pos2
+        return @view t._edge_erefs[edge1][pos1c:pos2c]
+    end
+    # get erefs on the remainder of edge1
+    subsequences = [@view(t._edge_erefs[edge1][pos1c:end])]
+    # get all erefs on intervening edges between edge1 and edge2
+    e = next_edge(t, edge1)
+    while e != edge2
+        push!(subsequences, edge_erefs(t, e))
+        e = next_edge(t, e)
+    end
+    # get erefs on the first part of edge2
+    push!(subsequences, @view(t._edge_erefs[edge2][1:pos2c]))
+    Iterators.flatten(subsequences)
+end
+
+################################################################################
+# ENDPOINTS
+################################################################################
+
+"""Return the `Endpoint` in `t` pointed to by `eref`."""
 @inline endpoint(t::Tile, eref::EndpointRef) = t._curvepieces[eref.cp_id].endpoints[eref.endpoint_idx]
 
-"""Returns the type (`EdgeEndpoint` or `AnyonEndpoint`) of the curvepiece partner of `eref` in tile `t`."""
+"""Return the type (`EdgeEndpoint` or `AnyonEndpoint`) of the curvepiece partner of `eref` in tile `t`."""
 @inline curvepiece_partner_type(t::Tile, eref::EndpointRef) = typeof(endpoint(t, curvepiece_partner(eref)))
 
 """
-Returns the 'tile partner' of `eref`, an edge endpoint in tile `t`. Returns
-`nothing` if `eref` doesn't have a tile partner. A tile partner for an ***edge***
-endpoint is informally the other edge endpoint that can be reached by traversing
-curvepieces only in that tile, where two curvepieces 'connect' if they both have
-an endpoint on the anyon. Formally:
+Return the 'tile partner' of `eref`, which refers to an `EdgeEndpoint` in `t`.
+Return `nothing` if `eref` doesn't have a tile partner.
+
+A tile partner for an ***edge*** endpoint is informally the other edge endpoint
+that can be reached by traversing curvepieces only in that tile, where two
+curvepieces 'connect' if they both have an endpoint on the anyon. Formally:
 
 If `eref` is on a boundary curvepiece, its tile partner is the same as its curvepiece
 partner, i.e. the other endpoint on the curvepiece.
@@ -177,10 +215,10 @@ partner, i.e. the other endpoint on the curvepiece.
 If `eref` is on a central curvepiece `cp1`:
 - if there is only one endpoint on `t`'s anyon, its tile partner is `nothing`
 - if there are two endpoints on `t`'s anyon, call the other curvepiece with an
-endpoint on the anyon `cp2`; the tile partner of `eref` is the edge endpoint of
+endpoint on the anyon `cp2`; the tile partner of `eref` is the `EdgeEndpoint` of
 `cp2`
 
-Throws an error if `eref` does not reference an `EdgeEndpoint`.
+Throw an error if `eref` does not reference an `EdgeEndpoint`.
 """
 function tile_partner(t::Tile, eref::EndpointRef, ::Type{EdgeEndpoint})
     endpoint(t, eref)::EdgeEndpoint
@@ -191,11 +229,13 @@ function tile_partner(t::Tile, eref::EndpointRef, ::Type{EdgeEndpoint})
 end
 
 """
-Returns the 'tile partner' of `eref`, an anyon endpoint in tile `t`. Returns
-`nothing` if `eref` doesn't have a tile partner. A tile partner for an ***anyon***
-endpoint is the other anyon endpoint on `t`'s anyon.
+Return the 'tile partner' of `eref`, which refers to an `AnyonEndpoint` in `t`.
+Return `nothing` if `eref` doesn't have a tile partner.
 
-Throws an error if `eref` does not reference an `AnyonEndpoint`.
+A tile partner for an ***anyon*** endpoint is the other anyon endpoint on `t`'s
+anyon.
+
+Throw an error if `eref` does not reference an `AnyonEndpoint`.
 """
 function tile_partner(t::Tile, eref::EndpointRef, ::Type{AnyonEndpoint})
     endpoint(t, eref)::AnyonEndpoint
@@ -204,31 +244,33 @@ function tile_partner(t::Tile, eref::EndpointRef, ::Type{AnyonEndpoint})
     anyon_eref(t, other_cp_id)
 end
 
-###############################################################################
+################################################################################
 # CURVEPIECES
-###############################################################################
+################################################################################
 
-"""Returns an iterator over all curvepiece ids present in `t`."""
+"""Return an iterator over all curvepiece ids present in `t`."""
 @inline curvepiece_ids(t::Tile) = keys(t._curvepieces)
 
-"""Returns the `Curvepiece` with id `cp_id` inside of `t`."""
+"""Return the `Curvepiece` with id `cp_id` inside of `t`."""
 @inline curvepiece(t::Tile, cp_id::Int) = t._curvepieces[cp_id]
 
-"""Returns `cp_id`s for all central curvepieces in `t`."""
+"""Return `cp_id`s for all central curvepieces in `t`."""
 @inline central_curvepiece_ids(t::Tile) = [eref.cp_id for eref in t._anyon_erefs]
 
-"""Whether curvepiece `cp_id` in `t` has an `AnyonEndpoint`."""
+"""Return whether curvepiece `cp_id` in `t` has an `AnyonEndpoint`."""
 @inline is_central_curvepiece(t::Tile, cp_id::Int) = anyon_eref(t, cp_id) !== nothing
 
 """
-Given a central curvepiece `cp_id` in tile `t`, returns the `cp_id` of the other
-central curvepiece in `t`, which is on the same curve, or `nothing` if no such
-curvepiece exists. Throws an error if `cp_id` is not an anyon curvepiece.
+Given a central curvepiece `cp_id` in tile `t`, return the `cp_id` of the other
+central curvepiece in `t`, which must be on the same `Curve`, or `nothing` if no such
+curvepiece exists.
+
+Throw an error if `cp_id` is not an anyon curvepiece.
 """
 function other_central_curvepiece_id(t::Tile, cp_id::Int)
     is_central_curvepiece(t, cp_id) ||
         throw(ArgumentError("curvepiece $cp_id is not a central curvepiece"))
-    for eref in t._anyon_erefs # direct access avoids an allocation from collect()
+    for eref in anyon_erefs(t)
         eref.cp_id != cp_id && return eref.cp_id
     end
     nothing
@@ -236,8 +278,8 @@ end
 
 """
 Return the `curve_id` of the tile's central curvepieces, and `nothing` if there
-are no such curvepieces. If there are two curvepieces with endpoints on the anyon,
-they must have the same `curve_id`.
+are no such curvepieces. If there are two central curvepieces, they must be on
+the same `Curve`.
 """
 function curve_id(t::Tile)
     cp_ids = central_curvepiece_ids(t)
@@ -248,16 +290,16 @@ end
 
 """
 Return the `anyon_count` of the anyon in this tile, if it has one, or `nothing`
-otherwise. That is, if there are any curvepieces with endpoints on the anyon,
-they are are part of a curve diagram, and this function returning `n` means that
-this anyon is the `nth` encountered on that curve diagram. """
+otherwise. That is, if there are any central curvepieces, they are are part of
+a `Curve`, and this function returning `n` means that this anyon is the `nth`
+encountered when traversing that `Curve`."""
 function anyon_count(t::Tile)
     # get central curvepieces
     cp_ids = central_curvepiece_ids(t)
     isempty(cp_ids) && return nothing
     curvepieces = [curvepiece(t, id) for id in cp_ids]
     # try to find an outgoing central curvepiece, and return its anyon_count if found
-    outgoing_id = findfirst(cp -> cp.endpoints[1] isa AnyonEndpoint, curvepieces)
+    outgoing_id = findfirst(cp -> first(cp) isa AnyonEndpoint, curvepieces)
     if outgoing_id !== nothing
         return curvepieces[outgoing_id].anyon_count
     else
@@ -273,16 +315,15 @@ is a boundary curvepiece with both endpoints on the same edge.
 This function is `O(N)` where `N` is the number of curvepieces in the tile.
 """
 function u_turn_curvepiece_ids(t::Tile)
-    u_turns = Int[]
+    u_turn_cp_ids = Int[]
     for (cp_id, cp) in t._curvepieces # access field directly for efficiency
-        ep1, ep2 = cp.endpoints
-        if ep1 isa EdgeEndpoint && ep2 isa EdgeEndpoint # is it a boundary curvepiece
-            if ep1.edge == ep2.edge # are both on same edge
-                push!(u_turns, cp_id)
+        if first(cp) isa EdgeEndpoint && last(cp) isa EdgeEndpoint # is it a boundary curvepiece
+            if first(cp).edge == last(cp).edge # are both on same edge
+                push!(u_turn_cp_ids, cp_id)
             end
         end
     end
-    u_turns
+    u_turn_cp_ids
 end
 
 """
@@ -294,26 +335,15 @@ other words, it hugs A if there are no endpoints between its endpoints and A.
 """
 function hugs_corner(t::Tile, cp_id::Int)
     cp = curvepiece(t, cp_id)
-    ep1, ep2 = cp.endpoints
-    ep1 isa EdgeEndpoint && ep2 isa EdgeEndpoint || return false
+    first(cp) isa EdgeEndpoint && last(cp) isa EdgeEndpoint || return false
     # clockwise and counterclockwise cases respectively
-    if next_edge(t, ep1.edge) == ep2.edge
-        ep1.pos == num_edge_erefs(t, ep1.edge) && ep2.pos == 1 && return true
+    if next_edge(t, first(cp).edge) == last(cp).edge
+        first(cp).pos == num_edge_erefs(t, first(cp).edge) && last(cp).pos == 1 && return true
     end
-    if next_edge(t, ep2.edge) == ep1.edge
-        ep2.pos == num_edge_erefs(t, ep2.edge) && ep1.pos == 1 && return true
+    if next_edge(t, last(cp).edge) == first(cp).edge
+        last(cp).pos == num_edge_erefs(t, last(cp).edge) && first(cp).pos == 1 && return true
     end
     false
-end
-
-"""
-Return a list of all partitions in the tile.
-
-"""
-function partitions(t::Tile)
-    # get all boundary curvepiece ids
-    boundary_ids = setdiff(curvepiece_ids(t), central_curvepiece_ids(t))
-
 end
 
 """
@@ -448,4 +478,131 @@ function nesting_hierarchy(t::Tile)
 
     # dictionary mapping curvepiece_id to nesting and max enclosing numbers
     Dict(id => (nesting[id], max_enc[id]) for id in boundary_ids)
+end
+
+################################################################################
+# TILE VALIDATION
+################################################################################
+
+"""
+Return a list of all `EndpointRef`s in `erefs` whose tile partners in `t`, if
+they exist, are not in `erefs`.
+
+Each element of `erefs` must refer to an `EdgeEndpoint`, otherwise the result
+may be incorrect.
+"""
+function _erefs_with_external_tile_partner(t::Tile, erefs::Set{EndpointRef})
+    externaltilepartner::Set{EndpointRef}=Set()
+    for e in erefs
+        tp = tile_partner(t, e, EdgeEndpoint)
+        if tp !== nothing && tp ∉ erefs
+            push!(externaltilepartner, e)
+        end
+    end
+    externaltilepartner
+end
+
+"""
+Return the set of partitions in `t` which would be violated if a new partition
+with endpoints at `(edge1, pos1)` and `(edge2, pos2)` was created. Partitions
+formed using an eref in `exclude` are not considered, meaning they will not be
+in the output even if they are violated by the new partition. Each element of
+`exclude` must refer to an `EdgeEndpoint`, otherwise the result may be incorrect.
+
+A partition P in a tile is a pair of edge endpoints which are tile partners. Let
+- P1 and P2 be the two endpoints respectively
+- PA1 be the set of endpoints contained in the clockwise walk from P1 to P2
+- PA2 be the set of endpoints contained in the counterclockwise walk from P1 to P2
+- PC be the set of curvepieces which contain P1 and/or P2
+
+Because tile partners are unique, P can be defined by either P1 or P2 alone.
+
+PA1 and PA2 are the 'clockwise arc' and 'counterclockwise arc' of the partition
+respectively. The sets PA1, PA2, and {A, B} partition the set of edge erefs in
+the tile, hence the name.
+
+If P1 and P2 are on the same boundary curvepiece, PC will just contain it. If they
+are not, then by virtue of being tile partners, they must be on the two central
+curvepieces in the tile, which will both be in PC. In either case, the curvepieces
+in PC split the area of the tile into two parts.
+
+A partition P is violated by another partition Q if the endpoints Q1 and Q2 of Q
+are in different arcs of P. This is equivalent to saying that the curvepieces in
+PC intersect the curvepieces in QC, which can be verified easily by drawing.
+
+Therefore, this function detects, given the prospective endpoint locations of
+either a boundary curvepiece or a pair of central curvepieces, whether inserting
+those curvepieces will cause any curvepiece intersections with curvepieces already
+in the tile.
+
+Return a set of erefs which each define one existing partition which would be
+violated by the proposed new partition.
+"""
+function violated_partitions(t::Tile, edge1::Int, pos1::Int, edge2::Int, pos2::Int;
+    exclude::Set{EndpointRef}=Set{EndpointRef}()
+)
+    # get erefs in the clockwise arc of P (P is defined by the function arguments)
+    arc = Set(edge_eref_clockwise_arc(t, edge1, pos1, edge2, pos2-1))
+    # add the tile partners of the erefs to exclude, so if the one in exclude isn't
+    # in arc, its tile partner will be and the exclusion will still occur
+    full_exclude = copy(exclude)
+    for e in exclude
+        tp = tile_partner(t, e, EdgeEndpoint)
+        if tp !== nothing push!(full_exclude, tp) end
+    end
+    # remove excluded erefs from arc, so they're not checked
+    filter!(eref -> eref ∉ full_exclude, arc)
+    # erefs in arc with tp not in arc define partitions violated by P
+    _erefs_with_external_tile_partner(t, arc)
+end
+
+"""
+Return whether `t` is complete, meaning there is a 1-to-1 correspondence between
+- `CurvepieceEndpoint`s in `Curvepiece`s in `t._curvepieces`
+- `EndpointRef`s in `t._anyon_erefs` and in the elements of `t._edge_erefs`
+
+In practice, this means checking that
+- for every `CurvepieceEndpoint` `ep` there is a corresponding `EndpointRef` `eref`
+    - in the correct location
+    - that correctly refers to `ep`
+- for every `EndpointRef` `eref` there is a corresponding `CurvepieceEndpoint` `ep`
+that is unique in `t`
+"""
+function is_complete(t::Tile)
+    for (cp_id, cp) in t._curvepieces
+        for (endpoint_idx, ep) in enumerate(cp.endpoints)
+            # check eref exists and has the correct information
+            if ep isa AnyonEndpoint
+                eref = anyon_eref(t, cp_id)
+                eref !== nothing || return false
+            else
+                has_edge_eref(t, ep.edge, ep.pos) || return false
+                eref = edge_eref(t, ep.edge, ep.pos)
+            end
+            eref.cp_id == cp_id && eref.endpoint_idx = endpoint_idx || return false
+        end
+    end
+    # check that every eref is unique and has a corresponding CurvepieceEndpoint
+    seen = EndpointRef[]
+    for eref in anyon_erefs(t)
+        eref in seen && return false
+        endpoint(t, eref) isa AnyonEndpoint || return false
+    end
+    for eref in all_edge_erefs(t)
+        eref in seen && return false
+        endpoint(t, eref) isa EdgeEndpoint || return false
+    end
+    true
+end
+
+"""
+Return whether `t` is valid, meaning that
+- there are 0, 1, or 2 anyon erefs
+- if there is 1 anyon eref, then the incoming central curvepiece has `anyon_count` of 1
+- if there are 2 anyon erefs:
+    - both refer to central curvepieces with the same `curve_id`
+    - the incoming central curvepiece has `anyon_count` one less than the outoing one
+"""
+function anyon_is_valid(t::Tile)
+
 end

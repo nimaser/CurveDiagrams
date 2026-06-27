@@ -436,8 +436,8 @@ position in the tile would have been checked. However, this is inefficient, as
 we can stop early if we have tested every position on `tref`. Therefore, we choose
 our scan start positions, directions, and stop conditions based on the situation:
 - Suppose that neither `eref1` nor `eref2` are on `tref`. Then the entirety of
-`tref` is contained in one of the directions of traversal starting from `eref1`.
-So we can just do one scan, and stop once we get to the end of `tref`.
+`tref` is contained in one arc between `eref1` and `eref2`. We scan both
+directions from `eref1` to cover both arcs, and take the minimum.
 - Suppose that one of `eref1` or `eref2` is on `tref`. Then we can do the two
 scans starting from that endpoint, stopping each once we get to the ends of `tref`.
 - Suppose that `eref1` and `eref2` are the same, but are not on `tref`. Then we
@@ -474,8 +474,10 @@ function _minimal_shielding_position(l::Lattice, tref::TileEdgeRef, eref1::Endpo
     end
 
     if !eref1_on_tref && !eref2_on_tref
-        # tref entirely on one side of eref1; one CW scan suffices
+        # tref is on one arc between eref1 and eref2; scan both directions
+        # to find whichever arc contains tref
         update!(_shielding_position_scan(t, edge, eref1, nothing, false)...)
+        update!(_shielding_position_scan(t, edge, eref1, nothing, true)...)
     elseif eref1_on_tref && !eref2_on_tref
         update!(_shielding_position_scan(t, edge, eref1, nothing, false)...)
         update!(_shielding_position_scan(t, edge, eref1, nothing, true)...)

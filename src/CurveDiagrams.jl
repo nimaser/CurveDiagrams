@@ -20,7 +20,7 @@ export anyon_eref
 # eref traversal
 export next_eref, prev_eref
 export next_eref_wrap, prev_eref_wrap
-export clockwise_sort
+export edge_eref_clockwise_sort, edge_eref_clockwise_arc
 # endpoints
 export endpoint, curvepiece_partner_type, tile_partner
 # curvepieces
@@ -28,6 +28,8 @@ export curvepiece_ids, curvepiece
 export central_curvepiece_ids, is_central_curvepiece, other_central_curvepiece_id
 export curve_id, anyon_count
 export u_turn_curvepiece_ids, hugs_corner, nesting_hierarchy
+# validation
+export violated_partitions, is_complete, anyon_is_valid
 include("tile/public_getters.jl")
 
 export insert_curvepiece!, move_endpoint!, remove_curvepiece!
