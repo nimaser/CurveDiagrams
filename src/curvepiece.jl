@@ -39,8 +39,13 @@ on that edge, which means it can change during tile mutation.
 """
 struct EdgeEndpoint <: CurvepieceEndpoint
     direction::EndpointDirection
-    edge::Unsigned
-    pos::Unsigned
+    edge::Int
+    pos::Int
+    function EdgeEndpoint(direction::EndpointDirection, edge::Int, pos::Int)
+        edge >= 0 || throw(ArgumentError("edge must be >= 0, got $edge"))
+        pos >= 0 || throw(ArgumentError("pos must be >= 0, got $pos"))
+        new(direction, edge, pos)
+    end
 end
 
 """
@@ -114,16 +119,20 @@ vice versa.
 """
 struct Curvepiece
     curve_id::Int
-    anyon_count::Unsigned
+    anyon_count::Int
     endpoints::NTuple{2, CurvepieceEndpoint}
     # validates the endpoint pair and stores them in forward-traversal order
     function Curvepiece(curve_id::Int, anyon_count::Int,
                         a::CurvepieceEndpoint, b::CurvepieceEndpoint)
+        anyon_count >= 1 || throw(ArgumentError("anyon_count must be >= 1, got $anyon_count"))
         _validate_endpoints(a, b)
         ep1, ep2 = _is_ordered(a, b) ? (a, b) : (b, a)
         new(curve_id, anyon_count, (ep1, ep2))
     end
 end
+
+# so we add the methods to Base rather than shadowing in the module namespace
+import Base: first, last
 
 """Return the first endpoint of `cp`."""
 @inline first(cp::Curvepiece) = first(cp.endpoints)
@@ -169,9 +178,10 @@ present rather than absolute
 versa)
 """
 function change_endpoint_location(
-    cp::Curvepiece, endpoint_idx::Unsigned,
+    cp::Curvepiece, endpoint_idx::Int,
     edge::Union{Nothing,Int}, pos::Union{Nothing,Int}
 )
+    endpoint_idx ∈ (1, 2) || throw(ArgumentError("endpoint_idx must be 1 or 2, got $endpoint_idx"))
     ep_moving = cp.endpoints[endpoint_idx]
     if ep_moving isa EdgeEndpoint
         if edge === nothing || pos === nothing

@@ -176,14 +176,14 @@ function edge_eref_clockwise_arc(t::Tile, edge1::Int, pos1::Int, edge2::Int, pos
     pos2c = min(pos2, num_edge_erefs(t, edge2))
     # if the arc is entirely contained within an edge
     if edge1 == edge2 && pos1 <= pos2
-        return @view t._edge_erefs[edge1][pos1c:pos2c]
+        return @view t._edge_erefs[edge1][pos1c:pos2c] # direct access to use view
     end
     # get erefs on the remainder of edge1
     subsequences = [@view(t._edge_erefs[edge1][pos1c:end])]
     # get all erefs on intervening edges between edge1 and edge2
     e = next_edge(t, edge1)
     while e != edge2
-        push!(subsequences, edge_erefs(t, e))
+        push!(subsequences, @view(t._edge_erefs[e][1:end]))
         e = next_edge(t, e)
     end
     # get erefs on the first part of edge2
@@ -254,8 +254,8 @@ end
 """Return the `Curvepiece` with id `cp_id` inside of `t`."""
 @inline curvepiece(t::Tile, cp_id::Int) = t._curvepieces[cp_id]
 
-"""Return `cp_id`s for all central curvepieces in `t`."""
-@inline central_curvepiece_ids(t::Tile) = [eref.cp_id for eref in t._anyon_erefs]
+"""Return an iterator over the `cp_id`s for all central curvepieces in `t`."""
+@inline central_curvepiece_ids(t::Tile) = (eref.cp_id for eref in t._anyon_erefs)
 
 """Return whether curvepiece `cp_id` in `t` has an `AnyonEndpoint`."""
 @inline is_central_curvepiece(t::Tile, cp_id::Int) = anyon_eref(t, cp_id) !== nothing
@@ -277,16 +277,22 @@ Throw an error if `cp_id` is not an anyon curvepiece.
 end
 
 """
-Return a tuple of the incoming and outgoing central curvepieces, in that order,
-with `nothing` taking the curvepiece's place if it doesn't exist.
+Return a tuple with the:
+- incoming central curvepiece id
+- incoming central curvepiece
+- outgoing central curvepiece id
+- outgoing central curvepiece
+
+with `nothing` as an element if the corresponding curvepiece doesn't exist.
 """
 @inline function ordered_central_curvepieces(t::Tile)
-    curvepieces = [curvepiece(t, id) for id in central_curvepiece_ids(t)]
+    cp_ids = collect(central_curvepiece_ids(t))
+    curvepieces = [curvepiece(t, id) for id in cp_ids]
     incoming_id = findfirst(cp -> last(cp) isa AnyonEndpoint, curvepieces)
     outgoing_id = findfirst(cp -> first(cp) isa AnyonEndpoint, curvepieces)
-    incoming = incoming_id === nothing ? nothing : curvepieces[incoming_id]
-    outgoing = outgoing_id === nothing ? nothing : curvepieces[outgoing_id]
-    (incoming, outgoing)
+    incoming = incoming_id === nothing ? (nothing, nothing) : (cp_ids[incoming_id], curvepieces[incoming_id])
+    outgoing = outgoing_id === nothing ? (nothing, nothing) : (cp_ids[outgoing_id], curvepieces[outgoing_id])
+    incoming..., outgoing...
 end
 
 """
@@ -307,7 +313,7 @@ otherwise. That is, if there are any central curvepieces, they are are part of
 a `Curve`, and this function returning `n` means that this anyon is the `nth`
 encountered when traversing that `Curve`."""
 function anyon_count(t::Tile)
-    incoming, outgoing = ordered_central_curvepieces(t)
+    _, incoming, _, outgoing = ordered_central_curvepieces(t)
     # try to find an outgoing central curvepiece, and return its anyon_count if found
     isnothing(outgoing) || return outgoing.anyon_count
     # only an incoming central curvepiece present, so we need to increase by 1
@@ -428,7 +434,7 @@ function nesting_hierarchy(t::Tile)
     boundary_ids = setdiff(curvepiece_ids(t), central_curvepiece_ids(t))
 
     # get ordered list of all erefs on the edges, including those belonging to central curvepieces
-    tile_edge_erefs = all_edge_erefs(t)
+    tile_edge_erefs = collect(all_edge_erefs(t))
     N = length(tile_edge_erefs)
 
     # mask for if endpoint has been assigned a nesting level
@@ -525,9 +531,11 @@ A partition P in a tile is a pair of edge endpoints which are tile partners. Let
 
 Because tile partners are unique, P can be defined by either P1 or P2 alone.
 
-PA1 and PA2 are the 'clockwise arc' and 'counterclockwise arc' of the partition
-respectively. The sets PA1, PA2, and {A, B} partition the set of edge erefs in
-the tile, hence the name.
+Because tile partners must always have opposing directions, we can let P1 and P2
+be the OUT and IN `EdgeEndpoint`s. Then we can uniquely assign names to the two
+arcs PA1 and PA2: PA1 and PA2 are the 'clockwise arc' and 'counterclockwise arc'
+of the partition respectively. The sets PA1, PA2, and {A, B} partition the set of
+edge erefs in the tile, hence the name.
 
 If P1 and P2 are on the same boundary curvepiece, PC will just contain it. If they
 are not, then by virtue of being tile partners, they must be on the two central
@@ -587,7 +595,7 @@ function is_complete(t::Tile)
                 has_edge_eref(t, ep.edge, ep.pos) || return false
                 eref = edge_eref(t, ep.edge, ep.pos)
             end
-            eref.cp_id == cp_id && eref.endpoint_idx = endpoint_idx || return false
+            (eref.cp_id == cp_id) && (eref.endpoint_idx == endpoint_idx) || return false
         end
     end
     # check that every eref is unique and has a corresponding CurvepieceEndpoint
@@ -612,7 +620,7 @@ Return whether `t` is valid, meaning that
 """
 function is_anyon_valid(t::Tile)
     num_anyon_erefs(t) ∈ (0, 1, 2) || return false
-    incoming, outgoing = ordered_central_curvepieces(t)
+    _, incoming, _, outgoing = ordered_central_curvepieces(t)
     if num_anyon_erefs(t) == 2
         incoming.curve_id == outgoing.curve_id || return false
         incoming.anyon_count == outgoing.anyon_count - 1 || return false

@@ -11,9 +11,9 @@ first or second)
 """
 struct EndpointRef
     cp_id::Int
-    endpoint_idx::UInt  # 1 or 2, for Curvepiece.endpoints[endpoint_idx]
+    endpoint_idx::Int  # 1 or 2, for Curvepiece.endpoints[endpoint_idx]
     function EndpointRef(cp_id, endpoint_idx)
-        endpoint_idx ∈ [1, 2] || throw(ArgumentError("endpoint_idx must be 1 or 2, got $endpoint_idx"))
+        endpoint_idx ∈ (1, 2) || throw(ArgumentError("endpoint_idx must be 1 or 2, got $endpoint_idx"))
         new(cp_id, endpoint_idx)
     end
 end

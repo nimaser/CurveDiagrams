@@ -1,25 +1,23 @@
+################################################################################
+# MAKE NEIGHBORS
+################################################################################
+
 """
-Create a new curve diagram between the anyons of two neighboring tiles, directed
-from `tile_id1` to `tile_id2`. In particular, an anyon-to-edge and edge-to-anyon
+Create a new `Curve` between the anyons of two neighboring tiles, directed from
+`tile_id1` to `tile_id2`. In particular, an outgoing and incoming central
 curvepiece are inserted into the first and second tiles respectively, such that
-their endpoints on the shared edge between the tiles are siblings, and the
-associated `CurvepieceRef`s and other curve diagram bookkeeping structures are created.
+their endpoints on the shared edge between the tiles are siblings.
 
-For this operation to succeed:
-- neither tile's anyon can already be on a curve diagram
-- `tile_id1` and `tile_id2` must share exactly one edge
+Throw an error if
+- either tile's anyon is already on a `Curve`
+- `tile_id1` and `tile_id2` are not neighbors
 
-These guarantee that any curvepieces in the two affected tiles are always able to be
-deformed to be out of the way of the two new curvepieces. Throws an error if either
-condition is violated.
+These conditions guarantee that any curvepieces in the two affected tiles are able
+to be deformed out of the way of the two new curvepieces.
 
 `pos` is the 1-based position in tile 1 at which the shared endpoint is inserted on
 the shared edge, and defaults to 1. The corresponding position for the sibling
 endpoint in tile 2 is calculated automatically. Throws an error if `pos` is invalid.
-
-Assumes that the lattice is in a valid state to start with, in particular that every edge
-endpoint for a curvepiece has a sibling. Violation of this assumption results in
-undefined behavior.
 
 Returns `(curve_id, action)` where `action = [0, curve_id, tile_id1, tile_id2]`. `action`
 is used by callers to record actions taken by the simulation.
@@ -38,11 +36,11 @@ function create_pair!(l::Lattice, tile_id1::Int, tile_id2::Int, pos::Int=1)
         throw(ArgumentError("tile $tile_id2 already has an anyon on a curve diagram"))
     # check that insertion position is valid; assumes valid lattice state
     N = num_edge_erefs(t1, e1)
-    1 <= pos <= N+1 || throw(ArgumentError("pos $pos not in range 1 to $(N+1)"))
+    1 <= pos <= N + 1 || throw(ArgumentError("pos $pos not in range 1 to $(N+1)"))
     # curve diagram and position setup before curvepiece insertion
     cid = _allocate_curve_id!(l)
     acount = 1
-    sibling_pos = (N+1) - pos + 1 # see sibling_insert_pos() and sibling_location() for explanation
+    sibling_pos = (N + 1) - pos + 1 # see sibling_insert_pos() and sibling_location() for explanation
     # insert curvepieces
     cp_id1 = insert_curvepiece!(t1, cid, acount, e1, pos, OUT)
     cp_id2 = insert_curvepiece!(t2, cid, acount, e2, sibling_pos, IN)
@@ -55,147 +53,141 @@ function create_pair!(l::Lattice, tile_id1::Int, tile_id2::Int, pos::Int=1)
 end
 
 """
-Swap two sequential anyons on the same curve diagram which are in neighboring tiles.
-The anyons must be 'directly connected', meaning that between them are exactly two
-edge-to-anyon curvepieces, one in `tile_id1` and one in `tile_id2`, which connect
-to each other at the shared edge. The value of `dir` indicates whether to carry out
+Swap two sequential anyons on the same `Curve` which are in neighboring tiles
+`tile_id1` and `tile_id2`. The anyons must be 'directly connected', meaning that
+between them are exactly two central curvepieces, one outgoing in the first tile
+and one incoming in the second tile; these central curvepieces must be siblings
+across the tiles' shared edge. The value of `dir` indicates whether to carry out
 a (+1) 'counterclockwise' or (-1) 'clockwise' swap.
 
-Please note: a swap does not change the physical state of the lattice, but instead
-changes the basis the lattice quantum state is written in. In other words, we are
-only changing the ordering of anyons on a curve diagram, not the lattice locations
-of any anyons.
+Throw an error if:
+- the tiles provided do not share an edge
+- A1, A2, and M are not as described below
+
+A swap should be interpreted as changing the basis the lattice quantum state is
+written in, not changing the physical state of the lattice itself. In other words,
+we are only changing the ordering of anyons on a curve diagram, not the lattice
+locations of any anyons.
 
 To clarify the setup:
-- let T1 and T2 be the tiles containing the two anyons A1 and A2 respectively
-- A1 and A2 are connected by a sequence, M, of two anyon-to-edge curvepieces
-- M is directed from A1 to A2
-- let P be the curvepiece before M in the curve diagram, if it exists; i.e. P is
-the other anyon-to-edge curvepiece in T1
-- let N be the curvepiece after M in the curve diagram, if it exists; i.e. N is
-the other anyon-to-edge curvepiece in T2
-- let E1 be the edge in T1 which hosts P's edge endpoint
-- let E2 be the edge in T2 which hosts N's edge endpoint
-- let E be the edge shared between T1 and T2
+- T1 and T2 are neighboring tiles containing the two anyons A1 and A2 respectively
+- E is the edge shared between T1 and T2
+- A1 and A2 are connected by a sequence, M = (M1, M2), of two central curvepieces,
+both part of the same `Curve` C
+- M1 is outgoing from A1 to E, while M2 is incoming from E to A2
+- M1 and M2 are siblings across E
+- P, if it exists, is the (incoming central) curvepiece before M1 in C
+- N, if it exists, is the (outgoing central) curvepiece after M2 in C
+- E1 is the edge in T1 which hosts P's `EdgeEndpoint` (first endpoint)
+- E2 is the edge in T2 which hosts N's `EdgeEndpoint` (second endpoint)
 
-So the entire sequence of curvepieces is:
-- P goes E1 -> A1
-- M goes A1 -> E -> A2
-- N goes A2 -> E2
+So the entire sequence of curvepieces in C is:
+- P: E1 -> A1
+- M1: A1 -> E
+- M2: E -> A2
+- N: E2 -> A2
 
-If A1 is the first anyon on the curve diagram, P will not be present. If A2
-is the last anyon on the curve diagram, N will not be present. The swap consists
-of three discrete steps, one to modify each of P, M, and N respectively.
-- M is always guaranteed to be present, and we just reverse its direction to get Mr
-- P's anyon endpoint is 'detached' from A1 and pulled/stretched alongside M to
+If A1 is the first anyon in C, P will not be present. If A2 is the last anyon in
+C, N will not be present.
+
+The swap consists of three steps, one to modify each of P, M, and N respectively:
+- M is always guaranteed to be present, and we just reverse its direction to get
+MR, which goes A2 -> E via M2R, an outgoing central curvepiece in T2, then E -> A1
+via M2R, an incoming central curvepiece in T1; M1R and M2R are the reversed M1 and
+M2
+- P's anyon endpoint is 'detached' from A1 and pulled/stretched alongside MR to
 attach to A2; this requires crossing E, and therefore P becomes two curvepieces,
-P1, which is an edge-to-edge curvepiece going from E1 to E, and P2, an edge-to-anyon
+P1, which is a boundary curvepiece going from E1 to E, and P2, an incoming central
 curvepiece going from E to A2
-- N does the same as P, except it is detached from A2, pulled alongside M, and
-attached to A1
+- Similarly, N's anyon endpoint is 'detached' from A2 and pulled/stretched alongside
+MR to attach to A1; this requires crossing E, and therefore N becomes two curvepieces,
+N1, which is an outgoing central curvepiece going from A1 to E, and N2, a boundary
+curvpeiece going from E to E2
 
 Therefore, after the swap, the sequence of curvepieces in the curve diagram is:
-- P1 from E1 -> E
-- P2 from E -> A2
-- Mr from A2 -> E -> A1
-- N1 from A1 -> E
-- N2 from E -> E2
+- P1: E1 -> E
+- P2: E -> A2
+- M2R: A2 -> E
+- M1R: E -> A1
+- N1: from A1 -> E
+- N2: from E -> E2
 
 P1 and P2 will only be present if P was present initially. N1 and N2 will only be
 present if N was present initially.
 
-P and N are pulled alongside M on 'opposite sides'. That is, if we orient the
-lattice so that M is horizontal, one goes above M, and one goes below it. In
+P and N are pulled alongside MR on 'opposite sides'. That is, if we orient the
+lattice so that MR is horizontal, one goes above M, and one goes below it. In
 other words, the position of the edge endpoints of P2 and N2 will be at +1
 and -1 offsets from the position of the edge endpoint in the middle of M.
 Which one is +1 and which one is -1 depends on the value of `dir`: `dir` sets
 the relative position of P2's edge endpoint.
 
-This function throws an error if:
-- the tiles provided do not share an edge
-- A1, A2, and M are not as described above
-
 Returns `action = [3, curve_id, seg, dir]`, where `seg` is the segment index between the
 two anyons before the swap.
 """
 function swap!(l::Lattice, tile_id1::Int, tile_id2::Int, dir::Int)
+    # inserting before (dir=-1) requires offset +0, inserting after (dir=+1) requires offset +1
+    dir ∈ (-1, 1) || throw(ArgumentError("dir must be ±1, got $dir"))
+    pos_offset, pos_offset_inverse = dir == 1 ? (1, 0) : (0, 1)
+    # get tiles
     t1 = get_tile(l, tile_id1)
     t2 = get_tile(l, tile_id2)
+    # find edge nums of E in T1 and T2
     shared = shared_edge(l, tile_id1, tile_id2)
     shared !== nothing || throw(ArgumentError("tiles $tile_id1 and $tile_id2 do not share an edge"))
-    e1, e2 = shared
-
-    # find M: the anyon cp in each tile whose edge endpoint is on the shared edge
-    m_t1_id = only(cp_id for cp_id in central_curvepiece_ids(t1)
-                   if (endpoint(t1, cp_partner(anyon_eref(t1, cp_id)))::EdgeEndpoint).edge == e1)
-    m_t2_id = only(cp_id for cp_id in anyon_cp_ids(t2)
-                   if (endpoint(t2, cp_partner(anyon_eref(t2, cp_id)))::EdgeEndpoint).edge == e2)
-
-    curve_id = curvepiece(t1, m_t1_id).curve_id
-    seg = curvepiece(t1, m_t1_id).anyon_count
-
-    # P = other anyon cp in T1 (if present), N = other anyon cp in T2 (if present)
-    p_id = partner_curvepiece_id(t1, m_t1_id)
-    n_id = partner_curvepiece_id(t2, m_t2_id)
-
-    # record endpoints and anyon_counts before any mutation
-    p_ep = p_id !== nothing ? (endpoint(t1, curvepiece_partner(anyon_eref(t1, p_id)))::EdgeEndpoint) : nothing
-    ac_p = p_id !== nothing ? curvepiece(t1, p_id).anyon_count : nothing
-    n_ep = n_id !== nothing ? (endpoint(t2, curvepiece_partner(anyon_eref(t2, n_id)))::EdgeEndpoint) : nothing
-    ac_n = n_id !== nothing ? curvepiece(t2, n_id).anyon_count : nothing
-
-    # record diagram positions before any mutation
-    m_t1_cref  = CurvepieceRef(tile_id1, m_t1_id)
-    m_t2_cref  = CurvepieceRef(tile_id2, m_t2_id)
-    start_cref = p_id !== nothing ? CurvepieceRef(tile_id1, p_id) : m_t1_cref
-    pos_start  = find_cref_index(l, curve_id, start_cref)
-    n_old      = (p_id !== nothing ? 1 : 0) + 2 + (n_id !== nothing ? 1 : 0)
-
-    # step 1: reverse M in both tiles
-    reverse_curvepiece!(t1, m_t1_id)
-    reverse_curvepiece!(t2, m_t2_id)
-
-    # step 2: remove P and N
-    p_id !== nothing && remove_curvepiece!(t1, p_id)
-    n_id !== nothing && remove_curvepiece!(t2, n_id)
-
-    # eref for Mr_t1's edge endpoint on e1 after reversal
-    m_t1_edge_eref = curvepiece_partner(anyon_eref(t1, m_t1_id))
-    p_m1 = (endpoint(t1, m_t1_edge_eref)::EdgeEndpoint).pos
-
-    # step 3: compute P1/P2 positions (before inserting anything), then insert P1 and P2
-    new_p1_id = nothing
-    new_p2_id = nothing
-    if p_id !== nothing
-        p1_second_pos = p_m1 + (dir == 1 ? 1 : 0)
-        p2_edge_pos   = sibling_insert_pos(l, tile_id1, e1, p1_second_pos)
-        new_p1_id = insert_curvepiece!(t1, curve_id, ac_p, p_ep.edge, p_ep.pos, e1, p1_second_pos)
-        new_p2_id = insert_curvepiece!(t2, curve_id, ac_p, e2, p2_edge_pos, IN)
+    e_t1, e_t2 = shared
+    # P (incoming) and M1 (outgoing) in T1; M2 (incoming) and N (outgoing) in T2
+    p_id, p_cp, m1_id, m1_cp = ordered_central_curvepieces(t1)
+    m2_id, m2_cp, n_id, n_cp = ordered_central_curvepieces(t2)
+    # curve_id and anyon_count value setup
+    cid = m1_cp.curve_id
+    acount_m = m1_cp.anyon_count
+    new_acount_p = acount_m + 1 # was - 1, if it exists
+    new_acount_n = acount_m - 1 # was + 1, if it exists
+    # figure out how many (and which) crefs to remove
+    m1_cref = CurvepieceRef(tile_id1, m1_id)
+    m2_cref = CurvepieceRef(tile_id2, m2_id)
+    start_cref = isnothing(p_id) ? m1_cref : CurvepieceRef(tile_id1, p_id)
+    start_cref_idx = find_cref_index(l, cid, start_cref)
+    num_old_crefs = (isnothing(p_id) ? 0 : 1) + 2 + (isnothing(n_id) ? 0 : 1)
+    # step 1: reverse M1 and M2
+    reverse_curvepiece!(t1, m1_id)
+    reverse_curvepiece!(t2, m2_id)
+    # step 2: turn P into P1 and N into N2
+    if !isnothing(p_id)
+        # move P's AnyonEndpoint to e_t1
+        p1_pos = last(m1_cp).pos + pos_offset
+        move_endpoint!(t1, anyon_eref(t1, p_id), e_t1, p1_pos)
     end
-
-    # step 4: compute N1/N2 positions (after inserting P1/P2 so sibling pos accounts for P2), then insert
-    new_n1_id = nothing
-    new_n2_id = nothing
-    if n_id !== nothing
-        p_m1_now      = (endpoint(t1, m_t1_edge_eref)::EdgeEndpoint).pos  # may have shifted if dir==-1
-        n1_second_pos = p_m1_now + (dir == 1 ? 0 : 1)
-        n2_edge_pos   = sibling_insert_pos(l, tile_id1, e1, n1_second_pos)
-        new_n1_id = insert_curvepiece!(t1, curve_id, ac_n, e1, n1_second_pos, OUT)
-        new_n2_id = insert_curvepiece!(t2, curve_id, ac_n, e2, n2_edge_pos, n_ep.edge, n_ep.pos)
+    if !isnothing(n_id)
+        # move N's AnyonEndpoint to e_t2
+        n2_pos = first(m2_cp).pos + pos_offset
+        move_endpoint!(t2, anyon_eref(t2, n_id), e_t2, n2_pos)
     end
-
-    # step 5: update the curve diagram: replace [P, M_t1, M_t2, N] with [P1, P2, Mr_t2, Mr_t1, N1, N2]
-    for _ in 1:n_old; _remove_cref!(l, curve_id, pos_start); end
-    ins = pos_start
-    if p_id !== nothing
-        _insert_cref!(l, curve_id, ins, CurvepieceRef(tile_id1, new_p1_id)); ins += 1
-        _insert_cref!(l, curve_id, ins, CurvepieceRef(tile_id2, new_p2_id)); ins += 1
+    # step 3: insert N1 (A1 -> e_t1) and P2 (e_t2 -> A2)
+    m1r_cp = curvepiece(t1, m1_id) # get updated curvepieces after step 2
+    m2r_cp = curvepiece(t2, m2_id)
+    if !isnothing(n_id)
+        n1_pos = first(m1r_cp).pos + pos_offset_inverse
+        n1_id = insert_curvepiece!(t1, cid, new_acount_n, e_t1, n1_pos, OUT)
     end
-    _insert_cref!(l, curve_id, ins, m_t2_cref); ins += 1
-    _insert_cref!(l, curve_id, ins, m_t1_cref); ins += 1
-    if n_id !== nothing
-        _insert_cref!(l, curve_id, ins, CurvepieceRef(tile_id1, new_n1_id)); ins += 1
-        _insert_cref!(l, curve_id, ins, CurvepieceRef(tile_id2, new_n2_id))
+    if !isnothing(p_id)
+        p2_pos = last(m2r_cp).pos + pos_offset_inverse
+        p2_id = insert_curvepiece!(t2, cid, new_acount_p, e_t2, p2_pos, IN)
+    end
+    # step 4: update Curve: [P, M1, M2, N] -> [P1, P2, M2R, M1R, N1, N2]
+    # ids (and hence crefs) preserved: P -> P1, N -> N2, M1 -> M1R, M2 -> M2R
+    for _ in 1:num_old_crefs _remove_cref!(l, cid, start_cref_idx) end
+    idx = start_cref_idx
+    if !isnothing(p_id)
+        _insert_cref!(l, cid, idx, CurvepieceRef(tile_id1, p_id)); idx += 1
+        _insert_cref!(l, cid, idx, CurvepieceRef(tile_id2, p2_id)); idx += 1
+    end
+    _insert_cref!(l, cid, idx, m2_cref); idx += 1
+    _insert_cref!(l, cid, idx, m1_cref); idx += 1
+    if !isnothing(n_id)
+        _insert_cref!(l, cid, idx, CurvepieceRef(tile_id1, n1_id)); idx += 1
+        _insert_cref!(l, cid, idx, CurvepieceRef(tile_id2, n_id))
     end
 
     [3, curve_id, seg, dir]
@@ -237,7 +229,7 @@ function _create_u_turn!(l::Lattice, cref::CurvepieceRef, edge::Int, pos::Int)
 
     p_id, n_id = edge_split!(t1, cref.cp_id, edge, pos)
     _remove_cref!(l, curve_id, pos_c)
-    _insert_cref!(l, curve_id, pos_c,     CurvepieceRef(cref.tile_id, p_id))
+    _insert_cref!(l, curve_id, pos_c, CurvepieceRef(cref.tile_id, p_id))
     _insert_cref!(l, curve_id, pos_c + 1, CurvepieceRef(cref.tile_id, n_id))
 
     p_ep = curvepiece(t1, p_id).endpoints[2]::EdgeEndpoint
@@ -274,14 +266,14 @@ shielding list at that position. If the `best_number` value is found to be `0`
 at some point on `tref_edge`, we return early, as it doesn't get better than that.
 """
 function _shielding_position_scan(t::Tile, tref_edge::Int,
-    start_eref::EndpointRef, stop_eref::Union{EndpointRef, Nothing},
+    start_eref::EndpointRef, stop_eref::Union{EndpointRef,Nothing},
     ccw::Bool,
 )
     shield_list = Int[]
     N = num_edge_erefs(t, tref_edge)
     best_number = typemax(Int)
-    best_pos    = 1
-    best_list   = Int[]
+    best_pos = 1
+    best_list = Int[]
 
     # For empty tref_edge with no explicit stop, find the first eref beyond the
     # end of tref_edge in the scan direction and use it as the effective stop.
@@ -312,7 +304,7 @@ function _shielding_position_scan(t::Tile, tref_edge::Int,
     while true
         ep = endpoint(t, current)::EdgeEndpoint
         next = ccw ? prev_eref_wrap(t, ep.edge, ep.pos) :
-                     next_eref_wrap(t, ep.edge, ep.pos)
+               next_eref_wrap(t, ep.edge, ep.pos)
         next == effective_stop && break
         effective_stop === nothing && next == start_eref && break
         current = next
@@ -323,8 +315,8 @@ function _shielding_position_scan(t::Tile, tref_edge::Int,
             ins_pos = ccw ? ep_cur.pos + 1 : ep_cur.pos
             if length(shield_list) < best_number
                 best_number = length(shield_list)
-                best_pos    = ins_pos
-                best_list   = copy(shield_list)
+                best_pos = ins_pos
+                best_list = copy(shield_list)
                 best_number == 0 && return best_number, best_pos, best_list
             end
         end
@@ -346,8 +338,8 @@ function _shielding_position_scan(t::Tile, tref_edge::Int,
             ins_pos = ccw ? 1 : N + 1
             if length(shield_list) < best_number
                 best_number = length(shield_list)
-                best_pos    = ins_pos
-                best_list   = copy(shield_list)
+                best_pos = ins_pos
+                best_list = copy(shield_list)
                 best_number == 0 && return best_number, best_pos, best_list
             end
             break
@@ -359,8 +351,8 @@ function _shielding_position_scan(t::Tile, tref_edge::Int,
     if N == 0
         if length(shield_list) < best_number
             best_number = length(shield_list)
-            best_pos    = 1
-            best_list   = copy(shield_list)
+            best_pos = 1
+            best_list = copy(shield_list)
             best_number == 0 && return best_number, best_pos, best_list
         end
     end
@@ -455,20 +447,20 @@ Returns the position on the edge with the minimum shielding number, along with t
 shielding list at that point.
 """
 function _minimal_shielding_position(l::Lattice, tref::TileEdgeRef, eref1::EndpointRef, eref2::EndpointRef)
-    t    = get_tile(l, tref.tile_id)
+    t = get_tile(l, tref.tile_id)
     edge = tref.edge
 
     eref1_on_tref = (endpoint(t, eref1)::EdgeEndpoint).edge == edge
     eref2_on_tref = (endpoint(t, eref2)::EdgeEndpoint).edge == edge
 
-    best_num  = typemax(Int)
-    best_pos  = 1
+    best_num = typemax(Int)
+    best_pos = 1
     best_list = Int[]
 
     function update!(num, pos, list)
         if num < best_num
-            best_num  = num
-            best_pos  = pos
+            best_num = num
+            best_pos = pos
             best_list = list
         end
     end
@@ -489,11 +481,11 @@ function _minimal_shielding_position(l::Lattice, tref::TileEdgeRef, eref1::Endpo
         # then scan CW from lower to higher
         ep1 = (endpoint(t, eref1)::EdgeEndpoint)
         ep2 = (endpoint(t, eref2)::EdgeEndpoint)
-        lower  = ep1.pos <= ep2.pos ? eref1 : eref2
+        lower = ep1.pos <= ep2.pos ? eref1 : eref2
         higher = ep1.pos <= ep2.pos ? eref2 : eref1
-        update!(_shielding_position_scan(t, edge, lower,  nothing, true)...)
+        update!(_shielding_position_scan(t, edge, lower, nothing, true)...)
         update!(_shielding_position_scan(t, edge, higher, nothing, false)...)
-        update!(_shielding_position_scan(t, edge, lower,  higher,  false)...)
+        update!(_shielding_position_scan(t, edge, lower, higher, false)...)
     end
 
     best_pos, best_list
@@ -534,7 +526,7 @@ function stretch!(l::Lattice, cref::CurvepieceRef, tile_id2::Int)
 
     # Get one edge endpoint of cref and its tile partner (or itself if no partner)
     eref1 = EndpointRef(cref.cp_id, cp.endpoints[1] isa EdgeEndpoint ? 1 : 2)
-    tp    = tile_partner(t1, eref1, EdgeEndpoint)
+    tp = tile_partner(t1, eref1, EdgeEndpoint)
     eref2 = tp !== nothing ? tp : eref1
 
     # Find optimal insertion position and ordered shielding list (innermost last)
@@ -584,7 +576,7 @@ function grow!(l::Lattice, tile_id1::Int, tile_id2::Int, place::Int)
     t1 = get_tile(l, tile_id1)
     t2 = get_tile(l, tile_id2)
     curve_id(t1) !== nothing || throw(ArgumentError("tile $tile_id1 has no anyon on a curve diagram"))
-    curve_id(t2) === nothing  || throw(ArgumentError("tile $tile_id2 already has an anyon on a curve diagram"))
+    curve_id(t2) === nothing || throw(ArgumentError("tile $tile_id2 already has an anyon on a curve diagram"))
     place ∈ (-1, +1) || throw(ArgumentError("place must be -1 or +1"))
 
     cid = curve_id(t1)
@@ -592,7 +584,7 @@ function grow!(l::Lattice, tile_id1::Int, tile_id2::Int, place::Int)
 
     # Find the anyon cp on the 'place' side: OUT direction for +1, IN for -1
     wanted_dir = place == 1 ? OUT : IN
-    a_cp_id = let ids = central_curvepiece_ids(t1)
+    a_cp_id = let ids = collect(central_curvepiece_ids(t1))
         idx = findfirst(id -> curvepiece(t1, id).endpoints[1].direction == wanted_dir, ids)
         idx === nothing ? nothing : ids[idx]
     end
@@ -602,8 +594,8 @@ function grow!(l::Lattice, tile_id1::Int, tile_id2::Int, place::Int)
         # anyon_split the resulting u-turn to attach t2's anyon.
         a_cref = CurvepieceRef(tile_id1, a_cp_id)
         p_cref = stretch!(l, a_cref, tile_id2)
-        pos_p  = find_cref_index(l, cid, p_cref)
-        u_cref = l._curvediagrams[cid][pos_p + 1]
+        pos_p = find_cref_index(l, cid, p_cref)
+        u_cref = l._curvediagrams[cid][pos_p+1]
 
         c1_id, c2_id = anyon_split!(t2, u_cref.cp_id)
 
@@ -618,15 +610,15 @@ function grow!(l::Lattice, tile_id1::Int, tile_id2::Int, place::Int)
         # Cases 1, 2: terminus in the place direction — stretch the only existing
         # anyon cp to move shields, then remove the u-turn to recover a clear path.
         opp_cref = CurvepieceRef(tile_id1, only(central_curvepiece_ids(t1)))
-        p_cref   = stretch!(l, opp_cref, tile_id2)
-        pos_p    = find_cref_index(l, cid, p_cref)
-        u_cref   = l._curvediagrams[cid][pos_p + 1]
-        n_cref   = l._curvediagrams[cid][pos_p + 2]
+        p_cref = stretch!(l, opp_cref, tile_id2)
+        pos_p = find_cref_index(l, cid, p_cref)
+        u_cref = l._curvediagrams[cid][pos_p+1]
+        n_cref = l._curvediagrams[cid][pos_p+2]
 
         # Record the e1 positions that will be vacated by u-turn removal
         p_pos_on_e1 = (curvepiece(t1, p_cref.cp_id).endpoints[2]::EdgeEndpoint).pos
         n_pos_on_e1 = (curvepiece(t1, n_cref.cp_id).endpoints[1]::EdgeEndpoint).pos
-        insert_pos  = min(p_pos_on_e1, n_pos_on_e1)
+        insert_pos = min(p_pos_on_e1, n_pos_on_e1)
 
         _remove_u_turn!(l, u_cref)
 
@@ -635,14 +627,14 @@ function grow!(l::Lattice, tile_id1::Int, tile_id2::Int, place::Int)
 
         if place == 1
             # Case 2: t1 is last — append new OUT cp in t1 and IN cp in t2
-            new_t1_id = insert_curvepiece!(t1, cid, seg, e1, insert_pos,   OUT)
-            new_t2_id = insert_curvepiece!(t2, cid, seg, e2, sibling_pos,  IN)
+            new_t1_id = insert_curvepiece!(t1, cid, seg, e1, insert_pos, OUT)
+            new_t2_id = insert_curvepiece!(t2, cid, seg, e2, sibling_pos, IN)
             n = length(l._curvediagrams[cid])
             _insert_cref!(l, cid, n + 1, CurvepieceRef(tile_id1, new_t1_id))
             _insert_cref!(l, cid, n + 2, CurvepieceRef(tile_id2, new_t2_id))
         else
             # Case 1: t1 is first — prepend new OUT cp in t2 and IN cp in t1
-            new_t1_id = insert_curvepiece!(t1, cid, 1, e1, insert_pos,  IN)
+            new_t1_id = insert_curvepiece!(t1, cid, 1, e1, insert_pos, IN)
             new_t2_id = insert_curvepiece!(t2, cid, 1, e2, sibling_pos, OUT)
             _insert_cref!(l, cid, 1, CurvepieceRef(tile_id1, new_t1_id))
             _insert_cref!(l, cid, 1, CurvepieceRef(tile_id2, new_t2_id))
@@ -656,21 +648,43 @@ function grow!(l::Lattice, tile_id1::Int, tile_id2::Int, place::Int)
 end
 
 """
-Merges two distinct curve diagrams by connecting `cp_id_in_t1` in `tile_id1` to
-`cp_id_in_t2` in `tile_id2` across their shared edge. The two formerly separate curves
-become one connected curve diagram. The surviving `curve_id` is the one with the lower id;
-the absorbed curve's id is permanently retired via `_delete_curvediagram!`.
+Merge two existing `Curve`s, which have anyons in `tile_id1` and `tile_id2`
+respectively; `tile_id1` and `tile_id2` must be neighbors.
 
-Preconditions:
-- `tile_id1` and `tile_id2` share exactly one edge.
-- `cp_id_in_t1` has an endpoint on the shared edge.
-- `cp_id_in_t2` has an endpoint on the same shared edge.
-- The two curvepieces belong to different curve diagrams.
+Throw an error if:
+- input tiles are not neighbors
+- input tiles' anyons are not on distinct `Curves`
+- there are any shielding curvepieces blocking either anyon from the shared
+edge between the two tiles
 
-Returns `action = [2, surviving_curve_id, absorbed_curve_id, 0]`.
+To implement this function, we need to attach the end of one `Curve` to the
+start of the other. To avoid creating any intersections, we first extend one
+`Curve` from its last anyon to its input tile's anyon, taking a path directly
+parallel to the `Curve`. Likewise, we extend the other `Curve` by traversing
+from its input tile to its first anyon, again travelling directly parallel to
+it. In both cases, the extensions will traverse in the opposite direction from
+the parts of the `Curve` they are adjacent/parallel to.
+
+The choice of for which `Curve` to choose the first and for which to choose the
+last anyon is arbitrary, so we make the choice that minimizes the total length
+of the extensions, measured in tile edge crossings.
+
+The extensions are then connected via the shared edge between the two tiles.
+It is assumed that there are no shielding curvepieces that would block that
+operation.
+
+Return `action = [2, surviving_curve_id, absorbed_curve_id, 0]`.
 """
-function merge!(l::Lattice, tile_id1::Int, cp_id_in_t1::Int, tile_id2::Int, cp_id_in_t2::Int)
-    # TODO
+function merge!(l::Lattice, tile_id1::Int, tile_id2::Int)
+    # calculate correct insertion position using _minimal_shielding_position
+
+    # if num shielding curvepieces is not 0, throw error
+
+    # calculate distance to both pairs of endpoints, find minimum distance choice
+
+    # create extensions
+
+    # connect extensions
 end
 
 """
@@ -698,9 +712,9 @@ function makeneighbors!(l::Lattice, tile_id1::Int, tile_id2::Int)
     # TODO
 end
 
-###############################################################################
+################################################################################
 # ANYON REMOVAL
-###############################################################################
+################################################################################
 
 """
 Remove the anyon in `tile_id` from its curve diagram.
@@ -791,3 +805,8 @@ end
 function move_anyon!(l::Lattice, tile_id1::Int, tile_id2::Int)
 
 end
+
+
+################################################################################
+#
+################################################################################

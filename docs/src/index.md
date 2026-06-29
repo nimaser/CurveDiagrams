@@ -1,0 +1,6 @@
+# CurveDiagrams
+
+```@autodocs
+Modules = [CurveDiagrams]
+```
+`

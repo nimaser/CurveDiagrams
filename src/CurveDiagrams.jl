@@ -2,7 +2,7 @@ module CurveDiagrams
 
 export EndpointDirection, IN, OUT
 export CurvepieceEndpoint, AnyonEndpoint, EdgeEndpoint
-export Curvepiece, change_endpoint_location
+export Curvepiece, first, last, change_endpoint_location
 include("curvepiece.jl")
 
 export EndpointRef, curvepiece_partner

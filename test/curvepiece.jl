@@ -1,8 +1,8 @@
 @testset "CurvepieceEndpoint; Curvepiece; first; last" begin
     # random fillers
-    cid, acount = rand(Int), rand(UInt)
-    edge1, pos1 = rand(UInt), rand(UInt)
-    edge2, pos2 = rand(UInt), rand(UInt)
+    cid, acount = rand(Int), rand(1:typemax(Int))
+    edge1, pos1 = rand(1:typemax(Int)), rand(1:typemax(Int))
+    edge2, pos2 = rand(1:typemax(Int)), rand(1:typemax(Int))
     # construct four representative curvepiece endpoints
     a_in  = AnyonEndpoint(IN)
     a_out = AnyonEndpoint(OUT)
@@ -40,12 +40,12 @@ end
 
 @testset "change_endpoint_location" begin
     # random fillers
-    cid, acount = rand(Int), rand(UInt)
+    cid, acount = rand(Int), rand(1:typemax(Int))
     # initial edge endpoint locations
-    edge1, pos1 = rand(UInt), rand(UInt)
-    edge2, pos2 = rand(UInt), rand(UInt)
+    edge1, pos1 = rand(1:typemax(Int)), rand(1:typemax(Int))
+    edge2, pos2 = rand(1:typemax(Int)), rand(1:typemax(Int))
     # new edge endpoint location
-    edge3, pos3 = rand(UInt), rand(UInt)
+    edge3, pos3 = rand(1:typemax(Int)), rand(1:typemax(Int))
 
     # we just test every possibility
 

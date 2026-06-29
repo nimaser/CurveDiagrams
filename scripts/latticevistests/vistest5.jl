@@ -1,0 +1,11 @@
+using GLMakie, CurveDiagrams
+include("../geometryhelper.jl")
+l = hexagonal_sphere(3, 3)
+v = hex_lattice_tile_vertices(3, 3)
+create_pair!(l, 1, 2)
+grow!(l, 2, 3, +1)
+grow!(l, 3, 6, +1)
+create_pair!(l, 4, 7)
+grow!(l, 2, 5, -1)
+grow!(l, 5, 9, -1)
+grow!(l, 5, 8, +1)
