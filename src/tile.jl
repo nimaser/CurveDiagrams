@@ -85,85 +85,12 @@ one.
 """
 struct Tile
     _next_cp_id::Ref{Int}
-    _curvepieces::Dict{Int, Curvepiece}
+    _curvepieces::Dict{Int,Curvepiece}
     _edge_erefs::Vector{Vector{EndpointRef}}
     _anyon_erefs::Set{EndpointRef}
     function Tile(n_edges::Int)
         n_edges > 0 || throw(ArgumentError("n_edges must be positive, got $n_edges"))
         n_edges isa Integer || throw(ArgumentError("n_edges must be an integer, got $n_edges"))
-        new(Ref(1), Dict{Int, Curvepiece}(), [EndpointRef[] for _ in 1:n_edges], Set{EndpointRef}())
+        new(Ref(1), Dict{Int,Curvepiece}(), [EndpointRef[] for _ in 1:n_edges], Set{EndpointRef}())
     end
-end
-
-################################################################################
-# INTERNAL MUTATORS
-################################################################################
-
-"""Return the next cp_id to be assigned."""
-@inline function _allocate_cp_id!(t::Tile)
-    id = t._next_cp_id[]
-    t._next_cp_id[] += 1
-    id
-end
-
-"""
-Insert `eref` at location `(edge, pos)` in `t`, shifting subsequent endpoint
-locations up.
-
-Return `nothing`.
-"""
-function _insert_edge_eref!(t::Tile, eref::EndpointRef, edge::Int, pos::Int)
-    erefs = t._edge_erefs[edge]
-    insert!(erefs, pos, eref)
-    # erefs now above pos have been shifted upwards by one index, so we need to
-    # update the pos of the corresponding CurvepieceEndpoints to match
-    for erefpos in pos+1:length(erefs)
-        shifted_eref = erefs[erefpos]
-        cp = t._curvepieces[shifted_eref.cp_id]
-        new_cp = change_endpoint_location(cp, shifted_eref.endpoint_idx, edge, erefpos)
-        t._curvepieces[shifted_eref.cp_id] = new_cp
-    end
-end
-
-"""
-Remove `EndpointRef` at location `(edge, pos)` in `t`, shifting subsequent endpoint
-locations down.
-
-Return `nothing`.
-"""
-function _remove_edge_eref!(t::Tile, edge::Int, pos::Int)
-    erefs = t._edge_erefs[edge]
-    deleteat!(erefs, pos)
-    # erefs now at and above pos have been shifted downwards by one index, so we
-    # need to update the pos of the corresponding CurvepieceEndpoints to match
-    for erefpos in pos:length(erefs)
-        # the interior of this loop is the same as that of _insert_edge_eref!
-        shifted_eref = erefs[erefpos]
-        cp = t._curvepieces[shifted_eref.cp_id]
-        new_cp = change_endpoint_location(cp, shifted_eref.endpoint_idx, edge, erefpos)
-        t._curvepieces[shifted_eref.cp_id] = new_cp
-    end
-    nothing
-end
-
-"""
-Insert `eref` into `t`'s anyon. Errors if this would result in more than two
-`AnyonEndpoint`s on the anyon.
-
-Return `nothing`.
-"""
-@inline function _insert_anyon_eref!(t::Tile, eref::EndpointRef)
-    length(t._anyon_erefs) < 2 || throw(ArgumentError("cannot add another EndpointRef to the anyon"))
-    push!(t._anyon_erefs, eref)
-    nothing
-end
-
-"""
-Remove `eref` from `t`'s anyon.
-
-Return `nothing`.
-"""
-@inline function _remove_anyon_eref!(t::Tile, eref::EndpointRef)
-    delete!(t._anyon_erefs, eref)
-    nothing
 end

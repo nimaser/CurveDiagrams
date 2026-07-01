@@ -1,41 +1,57 @@
-@testset "CurvepieceEndpoint; Curvepiece; first; last" begin
+@testset "EndpointDirection" begin
+    # check inversion
+    @test invert(IN) == OUT
+    @test invert(OUT) == IN
+end
+
+@testset "CurvepieceEndpoint" begin
+    # check construction
+    a_in, a_out, e_in, e_out = _fuzz_representative_endpoints()
+    # check inversion
+    @test invert(a_in) == a_out
+    @test invert(a_out) == a_in
+    @test invert(e_in) == EdgeEndpoint(OUT, e_in.edge, e_in.pos)
+    @test invert(e_out) == EdgeEndpoint(IN, e_out.edge, e_out.pos)
+    # check type hierarchy
+    for ep in (a_in, a_out, e_in, e_out)
+        @test ep isa CurvepieceEndpoint
+    end
+end
+
+@testset "CurvepieceEndpoint; Curvepiece; first; last; reverse" begin
     # random fillers
     cid, acount = rand(Int), rand(1:typemax(Int))
-    edge1, pos1 = rand(1:typemax(Int)), rand(1:typemax(Int))
-    edge2, pos2 = rand(1:typemax(Int)), rand(1:typemax(Int))
-    # construct four representative curvepiece endpoints
-    a_in  = AnyonEndpoint(IN)
-    a_out = AnyonEndpoint(OUT)
-    e_in  = EdgeEndpoint(IN, edge1, pos1)
-    e_out = EdgeEndpoint(OUT, edge2, pos2)
-    # check that they have the right type hierarchy
-    for ep in (a_in, a_out, e_in, e_out) @test ep isa CurvepieceEndpoint end
+    a_in, a_out, e_in, e_out = _fuzz_representative_endpoints()
     # check that two anyon endpoints cannot be on the same curvepiece
-    @test_throws ArgumentError Curvepiece(cid, acount, a_in , a_in )
-    @test_throws ArgumentError Curvepiece(cid, acount, a_in , a_out)
-    @test_throws ArgumentError Curvepiece(cid, acount, a_out, a_in )
+    @test_throws ArgumentError Curvepiece(cid, acount, a_in, a_in)
+    @test_throws ArgumentError Curvepiece(cid, acount, a_in, a_out)
+    @test_throws ArgumentError Curvepiece(cid, acount, a_out, a_in)
     @test_throws ArgumentError Curvepiece(cid, acount, a_out, a_out)
     # check that two edge endpoints on a curvepiece cannot have the same direction
-    @test_throws ArgumentError Curvepiece(cid, acount, e_in , e_in )
+    @test_throws ArgumentError Curvepiece(cid, acount, e_in, e_in)
     @test_throws ArgumentError Curvepiece(cid, acount, e_out, e_out)
     # check that an edge and anyon endpoint in the same curvepiece cannot have different directions
-    @test_throws ArgumentError Curvepiece(cid, acount, a_in , e_out)
-    @test_throws ArgumentError Curvepiece(cid, acount, a_out, e_in )
-    @test_throws ArgumentError Curvepiece(cid, acount, e_in , a_out)
-    @test_throws ArgumentError Curvepiece(cid, acount, e_out, a_in )
+    @test_throws ArgumentError Curvepiece(cid, acount, a_in, e_out)
+    @test_throws ArgumentError Curvepiece(cid, acount, a_out, e_in)
+    @test_throws ArgumentError Curvepiece(cid, acount, e_in, a_out)
+    @test_throws ArgumentError Curvepiece(cid, acount, e_out, a_in)
     # check that endpoints are automatically, consistently, and correctly ordered
-    cp1 = Curvepiece(cid, acount, e_in , a_in )
+    cp1 = Curvepiece(cid, acount, e_in, a_in)
     cp2 = Curvepiece(cid, acount, a_out, e_out)
-    cp3 = Curvepiece(cid, acount, e_in , e_out)
-    @test cp1 == Curvepiece(cid, acount, a_in , e_in )
+    cp3 = Curvepiece(cid, acount, e_in, e_out)
+    @test cp1 == Curvepiece(cid, acount, a_in, e_in)
     @test cp2 == Curvepiece(cid, acount, e_out, a_out)
-    @test cp3 == Curvepiece(cid, acount, e_out, e_in )
+    @test cp3 == Curvepiece(cid, acount, e_out, e_in)
     @test first(cp1) == cp1.endpoints[1] == e_in
     @test first(cp2) == cp2.endpoints[1] == a_out
     @test first(cp3) == cp3.endpoints[1] == e_in
     @test last(cp1) == cp1.endpoints[2] == a_in
     @test last(cp2) == cp2.endpoints[2] == e_out
     @test last(cp3) == cp3.endpoints[2] == e_out
+    # check reverse
+    @test reverse(cp1) == Curvepiece(cid, acount, invert(e_in), invert(a_in))
+    @test reverse(cp2) == Curvepiece(cid, acount, invert(a_out), invert(e_out))
+    @test reverse(cp3) == Curvepiece(cid, acount, invert(e_in), invert(e_out))
 end
 
 @testset "change_endpoint_location" begin

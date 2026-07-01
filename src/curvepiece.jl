@@ -1,11 +1,25 @@
+################################################################################
+# CURVEPIECE HELPER STRUCTS
+################################################################################
+
 """
-Every `CurvepieceEndpoint` has an `EndpointDirection`, which will either be `IN`
-to or `OUT` of a tile/anyon, if the endpoint is located on a tile edge/anyon
-respectively.
+    EndpointDirection
+
+An `EndpointDirection` indicates whether a `CurvepieceEndpoint` enters (`IN`) or
+exits (`OUT`) a tile or anyon.
 """
 @enum EndpointDirection IN OUT
 
 """
+    invert(ed::EndpointDirection)
+
+Inverts `ed`: `IN` -> `OUT` and `OUT` -> `IN`.
+"""
+invert(ed::EndpointDirection) = ed == IN ? OUT : IN
+
+"""
+    abstract type CurvepieceEndpoint end
+
 Every `Curvepiece` has two `CurvepieceEndpoint`s, where either
 - both are located on tile edges
 - one is located on an edge and the other is located on an anyon
@@ -26,6 +40,8 @@ overall curve diagram has no intersections).
 abstract type CurvepieceEndpoint end
 
 """
+    EdgeEndpoint(direction::EndpointDirection, edge::Int, pos::Int)
+
 An `EdgeEndpoint` has a `direction` and a location, the latter consisting of:
 - `edge`, which edge of the tile the endpoint is on
 - `pos`, the clockwise position of the endpoint along the edge: for example, if
@@ -49,6 +65,8 @@ struct EdgeEndpoint <: CurvepieceEndpoint
 end
 
 """
+    AnyonEndpoint(direction::EndpointDirection)
+
 An `AnyonEndpoint` has a `direction`, but no location information, because
 there isn't any ordering of the endpoints on an anyon (like there is with
 endpoints on an edge).
@@ -57,13 +75,30 @@ struct AnyonEndpoint <: CurvepieceEndpoint
     direction::EndpointDirection
 end
 
-"""
-Throws an error if endpoints `a` and `b` cannot be on the same curvepiece.
+invert(ep::EdgeEndpoint) = EdgeEndpoint(invert(ep.direction), ep.edge, ep.pos)
+invert(ep::AnyonEndpoint) = AnyonEndpoint(invert(ep.direction))
 
-Endpoints on a curvepiece cannot:
-- be both on edges and have the same directions (both IN or both OUT)
-- be both on anyons
-- be one on an anyon and one on an edge, and have differing directions
+"""
+    invert(ep::EdgeEndpoint)
+    invert(ep::AnyonEndpoint)
+
+Inverts `ep`'s `direction` while preserving all other fields.
+"""
+invert(ep::EdgeEndpoint), invert(ep::AnyonEndpoint)
+
+################################################################################
+# CURVEPIECE
+################################################################################
+
+"""
+    _validate_endpoints(a::CurvepieceEndpoint, b::CurvepieceEndpoint)
+
+Throw an error if `a` and `b` cannot belong to the same `Curvepiece`.
+
+A `Curvepiece`'s two endpoints cannot:
+- have the same `direction` if they are both `EdgeEndpoint`s
+- both be `AnyonEndpoint`s
+- have differing `directions` if they are different types of `CurvepieceEndpoint`
 """
 function _validate_endpoints(a::CurvepieceEndpoint, b::CurvepieceEndpoint)
     (a isa EdgeEndpoint && b isa EdgeEndpoint && a.direction == b.direction) &&
@@ -75,6 +110,8 @@ function _validate_endpoints(a::CurvepieceEndpoint, b::CurvepieceEndpoint)
 end
 
 """
+    _is_ordered(a::CurvepieceEndpoint, b::CurvepieceEndpoint)
+
 Partial order (on valid endpoint pairs) that reflects how a pair of curvepiece
 endpoints would be encountered while traversing a `Curve` through a tile. This
 ordering is entirely determined by the endpoints' types and directions.
@@ -86,11 +123,13 @@ Valid pair possibilities and their orders:
 """
 function _is_ordered(a::CurvepieceEndpoint, b::CurvepieceEndpoint)
     a isa EdgeEndpoint && b isa EdgeEndpoint && return a.direction == IN
-    a.direction == IN  && return a isa EdgeEndpoint
+    a.direction == IN && return a isa EdgeEndpoint
     a.direction == OUT && return a isa AnyonEndpoint
 end
 
 """
+    Curvepiece(curve_id::Int, anyon_count::Int, a::CurvepieceEndpoint, b::CurvepieceEndpoint)
+
 A `Curvepiece` is a piece of a `Curve` that lies inside a tile. Each has
 two `CurvepieceEndpoints`, and must either:
 - pass through the tile completely, meaning both of its endpoints are on edges
@@ -120,10 +159,10 @@ vice versa.
 struct Curvepiece
     curve_id::Int
     anyon_count::Int
-    endpoints::NTuple{2, CurvepieceEndpoint}
+    endpoints::NTuple{2,CurvepieceEndpoint}
     # validates the endpoint pair and stores them in forward-traversal order
     function Curvepiece(curve_id::Int, anyon_count::Int,
-                        a::CurvepieceEndpoint, b::CurvepieceEndpoint)
+        a::CurvepieceEndpoint, b::CurvepieceEndpoint)
         anyon_count >= 1 || throw(ArgumentError("anyon_count must be >= 1, got $anyon_count"))
         _validate_endpoints(a, b)
         ep1, ep2 = _is_ordered(a, b) ? (a, b) : (b, a)
@@ -132,15 +171,24 @@ struct Curvepiece
 end
 
 # so we add the methods to Base rather than shadowing in the module namespace
-import Base: first, last
+import Base: first, last, reverse
 
 """Return the first endpoint of `cp`."""
-@inline first(cp::Curvepiece) = first(cp.endpoints)
+first(cp::Curvepiece) = first(cp.endpoints)
 
 """Return the last endpoint of `cp`."""
-@inline last(cp::Curvepiece) = last(cp.endpoints)
+last(cp::Curvepiece) = last(cp.endpoints)
+
+"""Return a curvepiece identical to `cp` but with its endpoints' directions inverted."""
+reverse(cp::Curvepiece) = Curvepiece(cp.curve_id, cp.anyon_count, invert(first(cp)), invert(last(cp)))
+
+################################################################################
+# CHANGE ENDPOINT LOCATION
+################################################################################
 
 """
+    change_endpoint_location(cp::Curvepiece, endpoint_idx::Int, edge::Union{Nothing, Int}, pos::Union{Nothing, Int})
+
 Return a new `Curvepiece` which is the result of changing the location of `cp`'s
 `endpoint_idx`th endpoint (the 'moving' endpoint), while leaving the other (the
 'staying' endpoint) unchanged. The new endpoint (the 'target' endpoint) has location
@@ -195,7 +243,9 @@ function change_endpoint_location(
         end
     else
         # no-op case 5 early return
-        if edge === nothing || pos === nothing return cp end
+        if edge === nothing || pos === nothing
+            return cp
+        end
         # cases 2 & 4, A -> E, find cp direction from whether moving was
         # first/second in cp, then preserve that direction
         direction = endpoint_idx == 1 ? IN : OUT

@@ -3,7 +3,8 @@ module CurveDiagramsTest
 using ReTest
 using CurveDiagrams
 
-include("curvepiece.jl")
+include("curvepiece/utilities.jl")
+include("curvepiece/curvepiece.jl")
 
 # include("tile/tile.jl")
 # include("tile/internal_mutators.jl")
