@@ -78,13 +78,14 @@ end
 invert(ep::EdgeEndpoint) = EdgeEndpoint(invert(ep.direction), ep.edge, ep.pos)
 invert(ep::AnyonEndpoint) = AnyonEndpoint(invert(ep.direction))
 
-"""
-    invert(ep::EdgeEndpoint)
-    invert(ep::AnyonEndpoint)
+# TODO figure out why language server hates this
+# """
+#     invert(ep::EdgeEndpoint)
+#     invert(ep::AnyonEndpoint)
 
-Inverts `ep`'s `direction` while preserving all other fields.
-"""
-invert(ep::EdgeEndpoint), invert(ep::AnyonEndpoint)
+# Inverts `ep`'s `direction` while preserving all other fields.
+# """
+# invert(ep::EdgeEndpoint), invert(ep::AnyonEndpoint)
 
 ################################################################################
 # CURVEPIECE
@@ -178,6 +179,10 @@ first(cp::Curvepiece) = first(cp.endpoints)
 
 """Return the last endpoint of `cp`."""
 last(cp::Curvepiece) = last(cp.endpoints)
+
+"""Return the index of `ep` in `cp.endpoints`."""
+endpoint_idx(cp::Curvepiece, ep::CurvepieceEndpoint) =
+    ep == first(cp) ? 1 : ep == last(cp) ? 2 : throw(ArgumentError("$ep not in $cp"))
 
 """Return a curvepiece identical to `cp` but with its endpoints' directions inverted."""
 reverse(cp::Curvepiece) = Curvepiece(cp.curve_id, cp.anyon_count, invert(first(cp)), invert(last(cp)))

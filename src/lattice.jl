@@ -2,7 +2,8 @@
 # LATTICE HELPER STRUCTS
 ###############################################################################
 """
-We identify each `Curvepiece` in a lattice by storing its tile and its id within that tile.
+We identify each `Curvepiece` in a lattice by storing its tile and its id within
+that tile.
 """
 struct CurvepieceRef
     tile_id::Int
@@ -10,14 +11,13 @@ struct CurvepieceRef
 end
 
 """
-A `CurveDiagram` is a directed curve which starts and ends at tile anyons. It
-snakes through the lattice, not intersecting any other curve diagram,
+A `Curve` is a directed curve which starts and ends at tile anyons. It snakes
+through the lattice, not intersecting any other `Curve`. TODO
 
 Curve diagrams must start and end at anyons, meaning they must start and end with
 outgoing and incoming central curvepieces respectively.
-
 """
-const CurveDiagram = Vector{CurvepieceRef}
+const Curve = Vector{CurvepieceRef}
 
 """
 We identify each edge of a tile in a lattice by storing its tile and its edge number within that tile.
@@ -58,7 +58,7 @@ Each lattice mutator function in the public API returns an 'action', a ... TODO
 struct Lattice
     _tiles::Vector{Tile}
     _adjacency::Vector{Vector{TileEdgeRef}}
-    _curvediagrams::Vector{CurveDiagram}
+    _curves::Vector{Curve}
     function Lattice(adjacency::Vector{Vector{Tuple{Int,Int}}})
         adjacency = [[TileEdgeRef(edge_dat...) for edge_dat in tile_dat] for tile_dat in adjacency]
         tiles = Tile[]
@@ -74,7 +74,6 @@ struct Lattice
             # add the tile to the list
             push!(tiles, Tile(length(adjacency[tile_id])))
         end
-        curvediagrams = CurveDiagram[]
-        new(tiles, adjacency, curvediagrams)
+        new(tiles, adjacency, Curve[])
     end
 end

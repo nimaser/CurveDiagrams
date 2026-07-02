@@ -45,7 +45,7 @@ function edge_split!(
     acount = cp.anyon_count
     # determine the relative ordering of eref2 compared to eref1
     if num_anyon_erefs(t) == 1 && is_central_curvepiece(t, cp_id)
-        relpos = :before
+        relpos = :ccw
     else
         # find erefX/Y
         if first(cp) isa EdgeEndpoint && last(cp) isa EdgeEndpoint
@@ -85,7 +85,10 @@ function edge_split!(
                 ignore_ids=Set([cp_id, d_id]),
             )
         end
-    finally
+    catch e
+        remove_curvepiece!(t, d_id)
+        rethrow(e)
+    else
         remove_curvepiece!(t, d_id)
     end
     # insert other curvepiece
@@ -124,7 +127,7 @@ Merge two curvepieces in `t` at the specified edge endpoints `eref1` and `eref2`
 Return the curvepiece id of the resulting merged curvepiece.
 
 Throw an error if the proposed move would lead to intersecting curvepieces. Omit
-this validation by passing in `allow_intersections=true`.
+this validation by passing in `check_intersections=false`.
 
 This operation is effectively the inverse of `edge_split!`, up to curvepiece ids.
 
@@ -147,7 +150,8 @@ function edge_merge!(
     check_intersections::Bool=true,
 )
     # fetch curve_id, anyon_count
-    cp1 = curvepiece(t, eref1)
+    cp1 = curvepiece(t, eref1.cp_id)
+    cp2 = curvepiece(t, eref1.cp_id)
     cid = cp1.curve_id
     acount = cp1.anyon_count
     # validate
@@ -163,28 +167,28 @@ function edge_merge!(
     epA = endpoint(t, erefA)
     epB = endpoint(t, erefB)
     # ignore curvepiece1 and 2 for the purposes of insertion validation
-    exclude_erefs = Set([eref1.cp_id, eref2.cp_id])
+    ignore_ids = Set([eref1.cp_id, eref2.cp_id])
     # three result cases
     if epA isa EdgeEndpoint && epB isa EdgeEndpoint
         # boundary
         cp_id = insert_curvepiece!(t, cid, acount,
             :ccw, erefA, epA.direction,
             :ccw, erefB, epB.direction;
-            exclude=exclude_erefs
+            ignore_ids=ignore_ids,
         )
     else
         if epA isa EdgeEndpoint
             # incoming central
-            cp_id = insert_curvepiece!(t, cid, acount
+            cp_id = insert_curvepiece!(t, cid, acount,
                 :ccw, erefA, epA.direction;
-                allow_intersections=allow_intersections
-                exclude=exclude_erefs
+                check_intersections=check_intersections,
+                ignore_ids=ignore_ids,
             )
         else
             # outgoing central
-            cp_id = insert_curvepiece!(t, cid, acount
+            cp_id = insert_curvepiece!(t, cid, acount,
                 :ccw, erefB, epB.direction;
-                exclude=exclude_erefs
+                ignore_ids=ignore_ids,
             )
         end
     end
@@ -231,7 +235,7 @@ function anyon_split!(t::Tile, cp_id::Int)
     )
     # remove initial boundary curvepiece and return new cp_ids
     remove_curvepiece!(t, cp_id)
-    c1_id, c2_id
+    cp_id1, cp_id2
 end
 
 """

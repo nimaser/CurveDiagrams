@@ -4,7 +4,8 @@ module CurveDiagrams
 
 export EndpointDirection, IN, OUT, invert
 export CurvepieceEndpoint, AnyonEndpoint, EdgeEndpoint
-export Curvepiece, first, last, reverse, change_endpoint_location
+export Curvepiece, first, last, endpoint_idx, reverse
+export change_endpoint_location
 include("curvepiece.jl")
 
 ### TILE ###
@@ -45,11 +46,12 @@ export u_turn_curvepiece_ids, hugs_corner
 include("tile/getters/boundary_curvepiece_functions.jl")
 
 export nesting_hierarchy
-include("tile/getters/nesting.jl")
+include("tile/getters/nesting_hierarchy.jl")
 
-export is_anyon_valid, is_complete
 export violated_partitions
-include("tile/getters/validation.jl")
+include("tile/getters/violated_partitions.jl")
+
+include("tile/mutators/basic_internal.jl")
 
 export set_curvepiece_metadata!, reverse_curvepiece!
 export insert_curvepiece!, remove_curvepiece!, move_endpoint!
@@ -63,26 +65,41 @@ include("tile/mutators/two_curvepiece.jl")
 
 export CurvepieceRef, TileEdgeRef
 export Lattice
-include("lattice/lattice.jl")
+include("lattice.jl")
 
-# geometry
+# latice geometry
 export num_tiles, get_tile, corresponding_edge, shared_edge
-# curve diagrams
-export num_curves, curve_ids, get_curvediagram, is_deleted, tiles_in
-# # endpoints
-export sibling_location, sibling_insert_pos, sibling_eref
-# # curvepieces
-export find_cref_index, prev_curvepiece, next_curvepiece
-# # anyons
-export anyon_tiles, next_anyon, prev_anyon
-include("lattice/public_getters.jl")
+# curves
+export curve_ids, get_curve, tiles_in, find_cref_index
+include("lattice/getters/basic.jl")
 
-export create_pair!, grow!, remove_anyon!
-export stretch!
-include("lattice/public_mutators.jl")
+export sibling_location, sibling_eref
+include("lattice/getters/sibling.jl")
+
+export prev_curvepiece, next_curvepiece, extremity_distances
+include("lattice/getters/curve_traversal.jl")
+
+export anyon_tiles, next_anyon, prev_anyon
+include("lattice/getters/anyon.jl")
+
+include("lattice/mutators/basic_internal.jl")
+include("lattice/mutators/u_turn.jl")
+include("lattice/mutators/shielding.jl")
 
 export simplify!
-include("lattice/simplify.jl")
+include("lattice/mutators/simplify.jl")
+
+export swap!
+include("lattice/mutators/swap.jl")
+
+export remove_anyon!
+include("lattice/mutators/remove_anyon.jl")
+
+export move_anyon!
+include("lattice/mutators/move_anyon.jl")
+
+export create_pair!, grow!, merge!, make_neighbors!
+include("lattice/mutators/make_neighbors.jl")
 
 export visualize!, visualize
 function visualize! end
